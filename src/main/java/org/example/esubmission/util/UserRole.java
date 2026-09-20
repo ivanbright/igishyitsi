@@ -7,8 +7,10 @@ package org.example.esubmission.util;
  * </p>
  */
 public enum UserRole {
-    ADMIN("Administrator"),STUDENT("Normal user"),
-    TEACHER("Teacher user"),;
+    ADMIN("Administrator"),
+    STUDENT("Student"),
+    TEACHER("Teacher"),
+    PARENT("Parent");
 
     private String description;
     UserRole(String description) {

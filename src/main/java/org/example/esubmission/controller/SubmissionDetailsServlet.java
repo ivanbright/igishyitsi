@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpSession;
 import org.example.esubmission.dao.SubmissionDAO;
 import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
+import org.example.esubmission.util.UserRole;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,8 +20,8 @@ import java.nio.file.Paths;
 /**
  * Servlet responsible for displaying and managing submission details.
  * <p>
- * This servlet allows students and teachers to view submission information
- * and download submitted files from the server's storage.
+ * This servlet allows students, teachers, and admins to view submission information
+ * and download submitted files securely.
  * </p>
  *
  * @author Mugisha Ivan Bright
@@ -52,10 +53,16 @@ public class SubmissionDetailsServlet extends HttpServlet {
             throws ServletException, IOException {
         
         HttpSession session = request.getSession();
-        User student = (User) session.getAttribute("user");
+        User currentUser = (User) session.getAttribute("user");
 
-        if (student == null) {
+        if (currentUser == null) {
             response.sendRedirect(request.getContextPath() + "/login");
+            return;
+        }
+
+        String action = request.getParameter("action");
+        if ("download".equalsIgnoreCase(action) || "true".equalsIgnoreCase(request.getParameter("download"))) {
+            doPost(request, response);
             return;
         }
 
@@ -74,14 +81,21 @@ public class SubmissionDetailsServlet extends HttpServlet {
                 return;
             }
 
-            // Check if the submission belongs to the current student
-            if (!submission.getStudent().getId().equals(student.getId())) {
+            // Verify permission: Student owner, assignment Teacher, or Admin
+            boolean isStudentOwner = submission.getStudent() != null && submission.getStudent().getId().equals(currentUser.getId());
+            boolean isTeacherOwner = submission.getAssignment() != null && submission.getAssignment().getTeacher() != null && submission.getAssignment().getTeacher().getId().equals(currentUser.getId());
+            boolean isAdmin = currentUser.getRole() == UserRole.ADMIN;
+
+            if (!isStudentOwner && !isTeacherOwner && !isAdmin) {
                 response.sendError(403, "Access denied");
                 return;
             }
 
+            boolean isTeacherViewing = !isStudentOwner && (isTeacherOwner || isAdmin);
+
             request.setAttribute("submission", submission);
-            request.getRequestDispatcher("/submissionDetails.jsp").forward(request, response);
+            request.setAttribute("backLink", isTeacherViewing ? "/teacher/dashboard" : "/mySubmissions");
+            request.getRequestDispatcher("/WEB-INF/pages/submissionDetails.jsp").forward(request, response);
             
         } catch (NumberFormatException e) {
             response.sendError(400, "Invalid submission ID");
@@ -104,9 +118,9 @@ public class SubmissionDetailsServlet extends HttpServlet {
             throws ServletException, IOException {
         
         HttpSession session = request.getSession();
-        User student = (User) session.getAttribute("user");
+        User currentUser = (User) session.getAttribute("user");
 
-        if (student == null) {
+        if (currentUser == null) {
             response.sendRedirect(request.getContextPath() + "/login");
             return;
         }
@@ -119,8 +133,18 @@ public class SubmissionDetailsServlet extends HttpServlet {
                 Long submissionId = Long.parseLong(submissionIdStr);
                 Submission submission = submissionDAO.findById(submissionId);
                 
-                if (submission == null || !submission.getStudent().getId().equals(student.getId())) {
+                if (submission == null) {
                     response.sendError(404, "Submission not found");
+                    return;
+                }
+
+                // Verify permission: Student owner, assignment Teacher, or Admin
+                boolean isStudentOwner = submission.getStudent() != null && submission.getStudent().getId().equals(currentUser.getId());
+                boolean isTeacherOwner = submission.getAssignment() != null && submission.getAssignment().getTeacher() != null && submission.getAssignment().getTeacher().getId().equals(currentUser.getId());
+                boolean isAdmin = currentUser.getRole() == UserRole.ADMIN;
+
+                if (!isStudentOwner && !isTeacherOwner && !isAdmin) {
+                    response.sendError(403, "Access denied");
                     return;
                 }
 
@@ -135,15 +159,19 @@ public class SubmissionDetailsServlet extends HttpServlet {
                 Path filePath = Paths.get(applicationPath, fileUrl);
                 
                 if (!Files.exists(filePath)) {
-                    response.sendError(404, "File not found");
+                    response.sendError(404, "File not found on server");
                     return;
                 }
 
                 // Set response headers for file download
                 String fileName = filePath.getFileName().toString();
-                response.setContentType("application/octet-stream");
+                String mimeType = getServletContext().getMimeType(filePath.toString());
+                if (mimeType == null) {
+                    mimeType = "application/octet-stream";
+                }
+                response.setContentType(mimeType);
                 response.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
-                response.setContentLength((int) Files.size(filePath));
+                response.setContentLengthLong(Files.size(filePath));
 
                 // Write file to response
                 try (OutputStream out = response.getOutputStream()) {

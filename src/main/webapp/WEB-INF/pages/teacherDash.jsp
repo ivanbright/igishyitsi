@@ -1,1985 +1,614 @@
-<%@ page contentType="text/html; charset=UTF-8" language="java" %>
-    <%@ taglib prefix="c" uri="jakarta.tags.core" %>
-        <%@ taglib prefix="fmt" uri="jakarta.tags.fmt" %>
-            <!DOCTYPE html>
-            <html lang="en">
+﻿<%@ page contentType="text/html; charset=UTF-8" language="java" %>
+<%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="t" tagdir="/WEB-INF/tags" %>
+<c:set var="activeSection" value="${param.section != null ? param.section : 'overview'}"/>
 
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Teacher Dashboard - Igishyitsi</title>
-                <link rel="preconnect" href="https://fonts.googleapis.com">
-                <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-                <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap"
-                    rel="stylesheet">
-                <link rel="stylesheet"
-                    href="${pageContext.request.contextPath}/css/teacherDash.css?v=${pageContext.session.creationTime}">
-            </head>
+<t:layout role="TEACHER" pageTitle="Teacher Dashboard" activeSection="${activeSection}">
+    <jsp:attribute name="topBarActions">
+        <button class="btn btn-primary" id="createAssignmentBtn" onclick="openCreateModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Assignment
+        </button>
+    </jsp:attribute>
 
-            <body>
-                <script id="server-data" type="application/json">
-                    ${realData != null && realData != '' ? realData : "{}"}
-                </script>
-                <script>
-                    try {
-                        window.serverData = JSON.parse(document.getElementById('server-data').textContent);
-                    } catch (e) {
-                        window.serverData = {};
-                        console.error("Failed to parse serverData", e);
+    <jsp:attribute name="extraScripts">
+    <script>
+    (function() {
+        'use strict';
+
+        let serverData = {};
+        try {
+            serverData = JSON.parse(document.getElementById('server-data').textContent);
+        } catch (e) {
+            serverData = window.serverData || {};
+            console.error('Failed to parse serverData', e);
+        }
+
+        const user = serverData.currentUser || {};
+        const assignments = serverData.assignments || [];
+        const classes = serverData.classes || [];
+        const enrollments = serverData.enrollments || [];
+        const recentSubmissions = serverData.recentSubmissions || [];
+        const stats = serverData.stats || {};
+        const contextPath = '${pageContext.request.contextPath}';
+
+        function init() {
+            renderStats();
+            renderRecentSubmissions();
+            renderNeedsGrading();
+            renderAssignments();
+            renderAllSubmissions();
+            renderStudents();
+            renderClasses();
+            populateClassSelect();
+            setupNavigation();
+            setupGradeForm();
+            setupSubmissionFilter();
+            checkSessionMessages();
+        }
+
+        // ===== Stats =====
+        function renderStats() {
+            document.getElementById('statStudents').textContent = stats.studentCount != null ? stats.studentCount : 0;
+            document.getElementById('statAssignments').textContent = stats.assignmentCount != null ? stats.assignmentCount : assignments.length;
+            document.getElementById('statSubmissions').textContent = stats.submissionCount != null ? stats.submissionCount : recentSubmissions.length;
+            document.getElementById('statClasses').textContent = classes.length || 0;
+            document.getElementById('trendStudents').textContent = enrollments.length + ' enrollments';
+            document.getElementById('trendAssignments').textContent = recentSubmissions.filter(s => s.grade == null).length + ' awaiting grading';
+            document.getElementById('trendSubmissions').textContent = 'from ' + classes.length + ' classes';
+            document.getElementById('trendClasses').textContent = 'your assigned classes';
+        }
+
+        // ===== Recent Submissions (Overview) =====
+        function renderRecentSubmissions() {
+            const container = document.getElementById('recentSubmissionsList');
+            const recent = recentSubmissions.slice(0, 8);
+            if (recent.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No submissions received yet.</p></div>';
+                return;
+            }
+            let html = '';
+            recent.forEach(s => {
+                const a = s.assignment || {};
+                html += '<div class="submission-item">' +
+                    '<div class="submission-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div>' +
+                    '<div class="submission-details">' +
+                        '<span class="submission-title">' + escapeHtml(s.student ? s.student.name : 'Student') + '</span>' +
+                        '<span class="submission-meta">' + escapeHtml(a.title || '') + ' &middot; ' + formatDateTime(s.submittedAt) + '</span>' +
+                    '</div>' +
+                    '<div class="submission-grade">' +
+                        (s.grade != null ?
+                            '<span class="grade-display">' + s.grade + '/' + (a.points || 100) + '</span>' :
+                            '<button class="btn btn-sm btn-primary" onclick="openGradeModal(' + s.id + ')">Grade</button>'
+                        ) +
+                    '</div>' +
+                '</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        // ===== Needs Grading =====
+        function renderNeedsGrading() {
+            const container = document.getElementById('needsGradingList');
+            const ungraded = recentSubmissions.filter(s => s.grade == null);
+            if (ungraded.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>All submissions have been graded!</p></div>';
+                return;
+            }
+            let html = '';
+            ungraded.slice(0, 10).forEach(s => {
+                const a = s.assignment || {};
+                html += '<div class="submission-item">' +
+                    '<div class="submission-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>' +
+                    '<div class="submission-details">' +
+                        '<span class="submission-title">' + escapeHtml(s.student ? s.student.name : 'Student') + '</span>' +
+                        '<span class="submission-meta">' + escapeHtml(a.title || '') + ' &middot; ' + escapeHtml(a.className || '') + '</span>' +
+                    '</div>' +
+                    '<button class="btn btn-sm btn-primary" onclick="openGradeModal(' + s.id + ')">Grade</button>' +
+                '</div>';
+            });
+            if (ungraded.length > 10) {
+                html += '<div style="text-align:center; padding:12px;"><a href="#" onclick="switchSection(\'submissions\'); return false;" style="color:#4379EE; font-size:13px; font-weight:600;">View all ' + ungraded.length + ' ungraded submissions &rarr;</a></div>';
+            }
+            container.innerHTML = html;
+        }
+
+        // ===== Assignments =====
+        function renderAssignments() {
+            const container = document.getElementById('assignmentsList');
+            if (assignments.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No assignments created yet.</p><button class="btn btn-primary" style="margin-top:16px;" onclick="openCreateModal()">Create your first assignment</button></div>';
+                return;
+            }
+            let html = '';
+            assignments.forEach(a => {
+                const deadline = parseDate(a.deadline);
+                const isPast = deadline && deadline < new Date();
+                const subsForA = recentSubmissions.filter(s => (s.assignment ? s.assignment.id : null) === a.id);
+                const gradedCount = subsForA.filter(s => s.grade != null).length;
+
+                html += '<div class="assignment-card">' +
+                    '<div class="assignment-card-top">' +
+                        '<div class="assignment-meta">' +
+                            '<span class="assignment-class">' + escapeHtml(a.className || '') + '</span>' +
+                            (isPast ? '<span class="badge badge-red">Closed</span>' : '<span class="badge badge-green">Active</span>') +
+                        '</div>' +
+                        '<h3 class="assignment-title">' + escapeHtml(a.title) + '</h3>' +
+                        '<p class="assignment-desc">' + escapeHtml(truncate(a.description || '', 100)) + '</p>' +
+                    '</div>' +
+                    '<div class="assignment-card-bottom">' +
+                        '<div class="assignment-info">' +
+                            '<span class="assignment-deadline"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ' + (deadline ? formatDate(deadline) : 'No deadline') + '</span>' +
+                            '<span class="assignment-points">' + (a.points || 100) + ' pts</span>' +
+                        '</div>' +
+                        '<span class="progress-text" style="font-size:13px; color:#718096;">' + subsForA.length + ' submitted &middot; ' + gradedCount + ' graded</span>' +
+                    '</div>' +
+                '</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        // ===== All Submissions (Tab) =====
+        function renderAllSubmissions(filter) {
+            if (filter === undefined) filter = 'all';
+            const container = document.getElementById('allSubmissionsList');
+            let filtered = recentSubmissions;
+            if (filter === 'graded') filtered = filtered.filter(s => s.grade != null);
+            else if (filter === 'pending') filtered = filtered.filter(s => s.grade == null);
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No submissions found for the selected filter.</p></div>';
+                return;
+            }
+
+            let html = '';
+            filtered.forEach(s => {
+                const a = s.assignment || {};
+                const isGraded = s.grade != null;
+                html += '<div class="submission-item">' +
+                    '<div class="submission-icon">' +
+                        (isGraded ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>') +
+                    '</div>' +
+                    '<div class="submission-details">' +
+                        '<span class="submission-title">' + escapeHtml(s.student ? s.student.name : 'Student') + ' - ' + escapeHtml(a.title || '') + '</span>' +
+                        '<span class="submission-meta">' + escapeHtml(a.className || '') + ' &middot; ' + formatDateTime(s.submittedAt) + ' &middot; ' + escapeHtml(s.status || '') + '</span>' +
+                    '</div>' +
+                    '<div class="submission-grade">' +
+                        (isGraded ?
+                            '<span class="grade-display">' + s.grade + '/' + (a.points || 100) + '</span>' :
+                            '<button class="btn btn-sm btn-primary" onclick="openGradeModal(' + s.id + ')">Grade</button>'
+                        ) +
+                        (s.fileUrl ? '<a href="' + contextPath + '/submissionDetails?id=' + s.id + '" target="_blank" class="btn btn-sm btn-outline" style="margin-left:8px;">View Submission</a>' : '') +
+                    '</div>' +
+                '</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        // ===== Students (Roster) =====
+        function renderStudents() {
+            const container = document.getElementById('studentsList');
+            const uniqueStudents = new Map();
+            enrollments.forEach(e => {
+                if (!e.student) return;
+                if (!uniqueStudents.has(e.student.id)) {
+                    uniqueStudents.set(e.student.id, Object.assign({}, e.student, { classes: [e.className] }));
+                } else {
+                    uniqueStudents.get(e.student.id).classes.push(e.className);
+                }
+            });
+
+            if (uniqueStudents.size === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No students enrolled in your classes yet.</p></div>';
+                return;
+            }
+
+            let html = '';
+            uniqueStudents.forEach(student => {
+                html += '<div class="assignment-card">' +
+                    '<div class="assignment-meta"><span class="badge badge-green">Enrolled</span></div>' +
+                    '<h3 class="assignment-title">' + escapeHtml(student.name) + '</h3>' +
+                    '<p class="assignment-desc">' + escapeHtml(student.email) + '</p>' +
+                    '<div class="assignment-card-bottom">' +
+                        '<div class="assignment-info"><span>' + escapeHtml(student.classes.join(', ')) + '</span></div>' +
+                    '</div>' +
+                '</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        // ===== Classes =====
+        function renderClasses() {
+            const container = document.getElementById('classesList');
+            if (classes.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>You are not assigned to any classes yet.</p></div>';
+                return;
+            }
+            let html = '';
+            classes.forEach(c => {
+                const count = enrollments.filter(e => e.className === c).length;
+                html += '<div class="class-card">' +
+                    '<div class="class-avatar" style="background:' + stringToColor(c) + '">' + escapeHtml(c.charAt(0)) + '</div>' +
+                    '<div class="class-info"><h3>' + escapeHtml(c) + '</h3><span class="class-teacher">You teach this class</span></div>' +
+                    '<div class="class-stats-row"><span>' + count + ' students</span><span>' + assignments.filter(a => a.className === c).length + ' assignments</span></div>' +
+                '</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        // ===== Filters & Handlers =====
+        function populateClassSelect() {
+            const select = document.getElementById('assignmentClass');
+            if (!select) return;
+            let opts = '<option value="" disabled selected>Select a class</option>';
+            classes.forEach(c => { opts += '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; });
+            select.innerHTML = opts;
+        }
+
+        function setupSubmissionFilter() {
+            const filter = document.getElementById('submissionFilter');
+            if (filter) {
+                filter.addEventListener('change', (e) => renderAllSubmissions(e.target.value));
+            }
+        }
+
+        function setupGradeForm() {
+            const form = document.getElementById('gradeForm');
+            if (!form) return;
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const subId = document.getElementById('gradeSubmissionId').value;
+                const grade = document.getElementById('gradeInput').value;
+                const feedback = document.getElementById('feedbackInput').value;
+                if (!grade || grade === '') {
+                    showToast('Please enter a grade.', 'error');
+                    return;
+                }
+
+                const formData = new URLSearchParams();
+                formData.append('submissionId', subId);
+                formData.append('grade', grade);
+                formData.append('feedback', feedback);
+
+                fetch(contextPath + '/teacher/grade', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData
+                })
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
                     }
-                    console.log("Teacher Server Data Loaded:", window.serverData);
-                </script>
-                <!-- Toast Container -->
-                <div id="toastContainer" class="toast-container"></div>
-
-                <!-- Hamburger Menu -->
-                <div class="hamburger" onclick="toggleSidebar()">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
-
-                <!-- Sidebar Overlay -->
-                <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
-
-                <!-- Sidebar -->
-                <aside class="sidebar">
-                    <div class="logo">
-                        <h1>IGISHYITSI</h1>
-                    </div>
-                    <nav>
-                        <ul class="nav-menu">
-                            <li class="nav-item">
-                                <a href="#" class="nav-link active" onclick="navigateTo(event, 'dashboard')">
-                                    <span class="nav-icon">📊</span>
-                                    <span>Dashboard</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'live-class')">
-                                    <span class="nav-icon">🎥</span>
-                                    <span>Live Class</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'messages')">
-                                    <span class="nav-icon">💬</span>
-                                    <span>Messages</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'students')">
-                                    <span class="nav-icon">👥</span>
-                                    <span>My Students</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'courses')">
-                                    <span class="nav-icon">📚</span>
-                                    <span>My Courses</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'assignments')">
-                                    <span class="nav-icon">📝</span>
-                                    <span>Assignments</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'analytics')">
-                                    <span class="nav-icon">📈</span>
-                                    <span>Analytics</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'settings')">
-                                    <span class="nav-icon">⚙️</span>
-                                    <span>Settings</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="${pageContext.request.contextPath}/logout" class="nav-link">
-                                    <span class="nav-icon">🚪</span>
-                                    <span>Logout</span>
-                                </a>
-                            </li>
-                        </ul>
-                    </nav>
-                </aside>
-
-                <!-- Main Content -->
-                <main class="main-content">
-                    <!-- Dashboard Section -->
-                    <div id="dashboard" class="content-section active">
-                        <!-- Header -->
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>Dashboard Overview</h2>
-                                <p class="header-subtitle">Welcome back! Here's what's happening today</p>
-                            </div>
-                        </header>
-
-                        <!-- Stats Grid - Linkable -->
-                        <div class="stats-grid">
-                            <div class="stat-card" onclick="navigateTo(event, 'students')" style="cursor: pointer;">
-                                <div class="stat-label">Enrolled Students</div>
-                                <div class="stat-value">${stats.studentCount != null ? stats.studentCount : 0}</div>
-                                <div class="stat-change">Total across your classes</div>
-                            </div>
-                            <div class="stat-card" onclick="navigateTo(event, 'courses')" style="cursor: pointer;">
-                                <div class="stat-label">My Classrooms</div>
-                                <div class="stat-value">${classes != null ? classes.size() : 0}</div>
-                                <div class="stat-change">Active sections</div>
-                            </div>
-                            <div class="stat-card" onclick="navigateTo(event, 'assignments')" style="cursor: pointer;">
-                                <div class="stat-label">Active Assignments</div>
-                                <div class="stat-value">${stats.assignmentCount != null ? stats.assignmentCount : 0}
-                                </div>
-                                <div class="stat-change">Awaiting submissions</div>
-                            </div>
-                            <div class="stat-card" onclick="navigateTo(event, 'analytics')" style="cursor: pointer;">
-                                <div class="stat-label">Submissions</div>
-                                <div class="stat-value">${stats.submissionCount != null ? stats.submissionCount : 0}
-                                </div>
-                                <div class="stat-change">To be graded</div>
-                            </div>
-                        </div>
-
-                        <!-- Dashboard Grid -->
-                        <div class="dashboard-grid">
-                            <!-- Recent Activity -->
-                            <div class="section-card">
-                                <div class="section-header">
-                                    <h3 class="section-title">Recent Activity</h3>
-                                    <a href="#" class="see-all"
-                                        onclick="event.preventDefault(); showToast('Showing all activity logs', 'info')">View
-                                        All</a>
-                                </div>
-                                <div class="activity-feed">
-                                    <div class="activity-item">
-                                        <div class="activity-icon">📝</div>
-                                        <div class="activity-content">
-                                            <div class="activity-text">Emma Johnson submitted "Web Dev Project"</div>
-                                            <div class="activity-time">2 hours ago</div>
-                                        </div>
-                                    </div>
-                                    <div class="activity-item">
-                                        <div class="activity-icon">👤</div>
-                                        <div class="activity-content">
-                                            <div class="activity-text">New enrollment: Michael Chen</div>
-                                            <div class="activity-time">5 hours ago</div>
-                                        </div>
-                                    </div>
-                                    <div class="activity-item">
-                                        <div class="activity-icon">📢</div>
-                                        <div class="activity-content">
-                                            <div class="activity-text">Announcement posted: "Mid-term Schedule"</div>
-                                            <div class="activity-time">Yesterday</div>
-                                        </div>
-                                    </div>
-                                    <div class="activity-item">
-                                        <div class="activity-icon">✅</div>
-                                        <div class="activity-content">
-                                            <div class="activity-text">Graded "React Components" for 25 students</div>
-                                            <div class="activity-time">2 days ago</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Right Column -->
-                            <div style="display: flex; flex-direction: column; gap: 24px;">
-                                <!-- Quick Actions -->
-                                <div class="section-card">
-                                    <div class="section-header">
-                                        <h3 class="section-title">Quick Actions</h3>
-                                    </div>
-                                    <div class="quick-actions">
-                                        <div class="action-card-btn" onclick="navigateTo(event, 'assignments')">
-                                            <div class="action-icon">✅</div>
-                                            <div class="action-label">Grade Work</div>
-                                        </div>
-                                        <div class="action-card-btn" onclick="navigateTo(event, 'messages')">
-                                            <div class="action-icon">📢</div>
-                                            <div class="action-label">Announce</div>
-                                        </div>
-                                        <div class="action-card-btn" onclick="navigateTo(event, 'assignments')">
-                                            <div class="action-icon">➕</div>
-                                            <div class="action-label">New Task</div>
-                                        </div>
-                                        <div class="action-card-btn" onclick="navigateTo(event, 'messages')">
-                                            <div class="action-icon">✉️</div>
-                                            <div class="action-label">Message</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Upcoming -->
-                                <div class="section-card">
-                                    <div class="section-header">
-                                        <h3 class="section-title">Upcoming</h3>
-                                        <a href="#" class="see-all"
-                                            onclick="navigateTo(event, 'assignments')">Calendar</a>
-                                    </div>
-                                    <div class="upcoming-list">
-                                        <div class="upcoming-item">
-                                            <div class="upcoming-info">
-                                                <h4>Final Presentation</h4>
-                                                <p>Tomorrow, 10:00 AM</p>
-                                            </div>
-                                            <div class="upcoming-status">High</div>
-                                        </div>
-                                        <div class="upcoming-item">
-                                            <div class="upcoming-info">
-                                                <h4>Staff Meeting</h4>
-                                                <p>Feb 28, 2:00 PM</p>
-                                            </div>
-                                            <div class="upcoming-status status-closed">Normal</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Live Class Section -->
-                    <div id="live-class" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>Live Classroom</h2>
-                                <p class="header-subtitle">Stream lessons and interact with students in real-time</p>
-                            </div>
-                            <div class="header-actions">
-                                <button class="btn btn-secondary" onclick="toggleScreenShare()" id="shareBtn">🖥️ Share
-                                    Screen</button>
-                                <button class="btn btn-primary btn-danger" id="streamBtn" onclick="toggleStream()">▶
-                                    Start
-                                    Stream</button>
-                            </div>
-                        </header>
-                        <div class="live-grid">
-                            <div class="video-container" id="videoContainer">
-                                <video id="webcamFeed" autoplay playsinline muted></video>
-
-                                <!-- Placeholder / Status -->
-                                <div class="video-placeholder" id="videoPlaceholder">
-                                    <div class="video-icon">🎥</div>
-                                    <h3 id="streamStatus">Ready to join?</h3>
-                                    <p id="streamText" style="margin-bottom: 16px;">Click "Start Camera" to begin.</p>
-                                    <button class="btn btn-primary" style="background: #3b82f6;"
-                                        onclick="toggleStream()">Start
-                                        Camera</button>
-                                </div>
-
-                                <!-- Screen Share Overlay -->
-                                <div id="screenShareOverlay" class="video-overlay" style="display: none;">
-                                    <div class="video-icon">🖥️</div>
-                                    <h3>You are presenting to everyone</h3>
-                                    <button class="btn btn-sm btn-danger" onclick="stopScreenShare()">Stop
-                                        Presenting</button>
-                                </div>
-
-                                <!-- Google Meet Style Controls -->
-                                <div class="meet-controls-bar">
-                                    <div class="meet-controls-group">
-                                        <button class="meet-btn" id="micBtn" onclick="toggleMic()"
-                                            title="Turn off microphone (ctrl + d)">
-                                            🎤
-                                        </button>
-                                        <button class="meet-btn" id="camBtn" onclick="toggleCam()"
-                                            title="Turn off camera (ctrl + e)">
-                                            📹
-                                        </button>
-                                        <button class="meet-btn" id="shareBtn" onclick="toggleScreenShare()"
-                                            title="Present now">
-                                            ⬆️
-                                        </button>
-                                        <button class="meet-btn btn-end" onclick="toggleStream()" title="Leave call">
-                                            📞
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="chat-sidebar">
-                                <div class="chat-header">
-                                    <h3>Live Chat</h3>
-                                    <span class="viewer-count">👥 24 Online</span>
-                                </div>
-                                <div class="chat-messages" id="liveChatMessages">
-                                    <div class="chat-msg">
-                                        <span class="msg-author">Emma:</span>
-                                        <span class="msg-text">Hello teacher!</span>
-                                    </div>
-                                    <div class="chat-msg">
-                                        <span class="msg-author">Michael:</span>
-                                        <span class="msg-text">Can we review the last assignment?</span>
-                                    </div>
-                                </div>
-                                <div class="chat-input-area">
-                                    <input type="text" id="liveChatInput" placeholder="Type a message..."
-                                        onkeypress="handleEnter(event, 'liveChatInput', 'liveChatMessages')">
-                                    <button class="btn-send"
-                                        onclick="sendMessage('liveChatInput', 'liveChatMessages')">➤</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Messages Section -->
-                    <div id="messages" class="content-section">
-                        <div class="messages-container">
-                            <div class="contacts-list">
-                                <div class="contacts-header">
-                                    <div class="contacts-header-top">
-                                        <h3>Messages</h3>
-                                        <button class="btn-icon" title="New Message"
-                                            onclick="startNewMessage()">✏️</button>
-                                    </div>
-                                    <div class="contact-search-bar">
-                                        <span class="search-icon">🔍</span>
-                                        <input type="text" id="contactSearchInput" placeholder="Search contacts..."
-                                            onkeyup="filterContacts()">
-                                    </div>
-                                </div>
-                                <div class="contact-item active" onclick="switchContact('Emma Johnson')">
-                                    <div class="contact-avatar">EJ</div>
-                                    <div class="contact-info">
-                                        <h4>Emma Johnson</h4>
-                                        <p>Submitted the project!</p>
-                                    </div>
-                                    <span class="time">2m</span>
-                                </div>
-                                <div class="contact-item" onclick="switchContact('Michael Chen')">
-                                    <div class="contact-avatar">MC</div>
-                                    <div class="contact-info">
-                                        <h4>Michael Chen</h4>
-                                        <p>I have a question about...</p>
-                                    </div>
-                                    <span class="time">1h</span>
-                                </div>
-                                <div class="contact-item" onclick="switchContact('Web Dev Class')">
-                                    <div class="contact-avatar avatar-yellow">Class</div>
-                                    <div class="contact-info">
-                                        <h4>Web Dev Class</h4>
-                                        <p>Reminder: Test tomorrow</p>
-                                    </div>
-                                    <span class="time">1d</span>
-                                </div>
-                            </div>
-                            <div class="chat-area">
-                                <div class="chat-area-header">
-                                    <div class="contact-info">
-                                        <h3 id="currentContactName">Emma Johnson</h3>
-                                        <p id="currentContactStatus">Web Development • Active now</p>
-                                    </div>
-                                    <div class="header-actions">
-                                        <button class="btn btn-secondary" onclick="viewCurrentContactProfile()">View
-                                            Profile</button>
-                                    </div>
-                                </div>
-                                <div class="chat-area-messages" id="mainChatMessages">
-                                    <div class="message received">
-                                        <p>Hi Professor, I just submitted the Web Dev project. Let me know if you
-                                            received it!
-                                        </p>
-                                        <span class="msg-time">10:30 AM</span>
-                                    </div>
-                                    <div class="message sent">
-                                        <p>Hi Emma, yes I see it. I'll review it by tomorrow.</p>
-                                        <span class="msg-time">10:32 AM</span>
-                                    </div>
-                                    <div class="message received">
-                                        <p>Great, thanks!</p>
-                                        <span class="msg-time">10:33 AM</span>
-                                    </div>
-                                </div>
-                                <div class="chat-input-area">
-                                    <input type="text" id="mainChatInput" placeholder="Type a message..."
-                                        onkeypress="handleEnter(event, 'mainChatInput', 'mainChatMessages')">
-                                    <button class="btn-send"
-                                        onclick="sendMessage('mainChatInput', 'mainChatMessages')">➤</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Student Detail Section (Extensive View) -->
-                    <div id="student-detail" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <button class="btn-back" onclick="navigateTo(event, 'students')">← Back to
-                                    Students</button>
-                                <h2 id="detailName"></h2>
-                                <p id="detailEmail" class="header-subtitle"></p>
-                            </div>
-                            <div class="header-actions">
-                                <button class="btn btn-secondary" onclick="navigateTo(event, 'messages')">💬
-                                    Message</button>
-                                <button class="btn btn-primary"
-                                    onclick="showToast('Feature coming soon: Editing Profile', 'info')">✏️ Edit
-                                    Profile</button>
-                            </div>
-                        </header>
-
-                        <!-- Profile Tabs Navigation -->
-                        <div class="profile-tabs">
-                            <div class="tab-link active" onclick="switchStudentTab('overview')">Overview</div>
-                            <div class="tab-link" onclick="switchStudentTab('assignments')">Assignments</div>
-                            <div class="tab-link" onclick="switchStudentTab('grades')">Grades History</div>
-                            <div class="tab-link" onclick="switchStudentTab('management')">Management</div>
-                        </div>
-
-                        <div class="dashboard-grid">
-                            <!-- Main Content Area -->
-                            <div style="display: flex; flex-direction: column; gap: 24px;">
-
-                                <!-- Overview Tab -->
-                                <div id="tab-overview" class="tab-content active">
-                                    <div class="section-card">
-                                        <div class="section-header">
-                                            <h3 class="section-title">Academic Standing</h3>
-                                        </div>
-                                        <div class="profile-stats"
-                                            style="grid-template-columns: repeat(3, 1fr); margin-bottom: 24px;">
-                                            <div class="p-stat">
-                                                <span class="label">Attendance</span>
-                                                <span class="value">95%</span>
-                                            </div>
-                                            <div class="p-stat">
-                                                <span class="label">Course Grade</span>
-                                                <span id="detailGradePill" class="value">A</span>
-                                            </div>
-                                            <div class="p-stat">
-                                                <span class="label">Completion</span>
-                                                <span class="value">92%</span>
-                                            </div>
-                                        </div>
-                                        <div class="detail-pills">
-                                            <span class="detail-pill">Enrolled: Sept 2023</span>
-                                            <span class="detail-pill">Scholarship Student</span>
-                                            <span class="detail-pill">Active Participant</span>
-                                        </div>
-                                    </div>
-
-                                    <div class="section-card" style="margin-top: 24px;">
-                                        <div class="section-header">
-                                            <h3 class="section-title">Enrolled Courses</h3>
-                                        </div>
-                                        <div class="upcoming-list" id="detailCourses">
-                                            <!-- Dynamic courses -->
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Assignments Tab -->
-                                <div id="tab-assignments" class="tab-content">
-                                    <div class="section-card">
-                                        <div class="table-container">
-                                            <table>
-                                                <thead>
-                                                    <tr>
-                                                        <th>Assignment</th>
-                                                        <th>Status</th>
-                                                        <th>Grade</th>
-                                                        <th>Submitted</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody id="detailAssignmentsTable">
-                                                    <!-- Dynamic data -->
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Grades Tab -->
-                                <div id="tab-grades" class="tab-content">
-                                    <div class="section-card">
-                                        <div class="section-header">
-                                            <h3 class="section-title">Performance Trend</h3>
-                                        </div>
-                                        <p style="color: var(--text-muted); margin-bottom: 24px;">Historical grade
-                                            performance
-                                            across all semesters.</p>
-                                        <div
-                                            style="height: 200px; background: rgba(255,255,255,0.02); border-radius: 12px; display: flex; align-items: center; justify-content: center; border: 1px dashed var(--glass-border);">
-                                            <span style="color: var(--text-muted);">Grade Chart Visualization
-                                                Placeholder</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Management Tab -->
-                                <div id="tab-management" class="tab-content">
-                                    <div class="section-card">
-                                        <div class="section-header">
-                                            <h3 class="section-title">Administrative Actions</h3>
-                                            <p class="section-subtitle">Manage student status and permissions</p>
-                                        </div>
-                                        <div class="management-actions">
-                                            <div class="action-card"
-                                                onclick="showToast('Reset link sent to student email', 'success')">
-                                                <h4>🔑 Reset Password</h4>
-                                                <p>Send a secure password reset link</p>
-                                            </div>
-                                            <div class="action-card"
-                                                onclick="showToast('Official warning issued', 'warning')">
-                                                <h4>⚠️ Issue Warning</h4>
-                                                <p>Flag for lack of participation</p>
-                                            </div>
-                                            <div class="action-card danger"
-                                                onclick="confirm('Suspend student access?') && showToast('Student suspended', 'error')">
-                                                <h4>🚫 Suspend Access</h4>
-                                                <p>Temporarily disable dashboard access</p>
-                                            </div>
-                                            <div class="action-card"
-                                                onclick="showToast('Opening student dashboard view...', 'info')">
-                                                <h4>👁️ View as Student</h4>
-                                                <p>Preview dashboard as this student</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Right Sidebar (Profile Card) -->
-                            <div class="section-card profile-card" style="height: fit-content;">
-                                <div class="profile-header-center"
-                                    style="text-align: center; padding-bottom: 24px; border-bottom: 1px solid var(--glass-border);">
-                                    <div class="profile-avatar-lg" id="detailAvatar"
-                                        style="width: 80px; height: 80px; margin: 0 auto 16px; font-size: 32px; background: var(--accent-gradient); color: #000; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-weight: 800;">
-                                        --</div>
-                                    <h3 id="detailSidebarName"></h3>
-                                    <p id="detailSidebarCourse"
-                                        style="color: var(--accent-cyan); font-weight: 600; margin-top: 4px;">
-                                    </p>
-                                </div>
-                                <div style="margin-top: 24px;">
-                                    <h4
-                                        style="font-size: 14px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;">
-                                        Notes</h4>
-                                    <textarea
-                                        style="width: 100%; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 12px; padding: 12px; color: white; transition: 0.3s; height: 120px;"
-                                        placeholder="Add private notes about this student..."></textarea>
-                                    <button class="btn btn-sm btn-secondary" style="margin-top: 12px; width: 100%;"
-                                        onclick="showToast('Notes saved', 'success')">Save Notes</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Students Section -->
-                    <div id="students" class="content-section">
-                        <!-- Header -->
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>My Students</h2>
-                                <p class="header-subtitle">Track progress of students enrolled in your courses</p>
-                            </div>
-                            <div class="header-actions">
-                                <button class="btn btn-secondary" onclick="exportData()">📥 Export List</button>
-                                <button class="btn btn-primary" onclick="openAddModal()">➕ Enroll Student</button>
-                            </div>
-                        </header>
-
-                        <!-- Stats Grid -->
-                        <div class="stats-grid">
-                            <div class="stat-card">
-                                <div class="stat-label">Total Enrollments</div>
-                                <div class="stat-value">${studentCount != null ? studentCount : 0}</div>
-                                <div class="stat-change">↑ 12% from last month</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">Active Students</div>
-                                <div class="stat-value">${studentCount != null ? studentCount : 0}</div>
-                                <div class="stat-change">↑ 8% from last month</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">Average Grade</div>
-                                <div class="stat-value">85.4</div>
-                                <div class="stat-change">↑ 3.2% from last month</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">Retention Rate</div>
-                                <div class="stat-value">96%</div>
-                                <div class="stat-change">↑ 2% from last month</div>
-                            </div>
-                        </div>
-
-                        <!-- Controls -->
-                        <div class="controls">
-                            <div class="search-box">
-                                <span class="search-icon">🔍</span>
-                                <input type="text" id="searchInput" placeholder="Search students by name or email..."
-                                    onkeyup="filterStudents()">
-                            </div>
-                            <select id="gradeFilter" onchange="filterStudents()">
-                                <option value="">All Grades</option>
-                                <option value="A">Grade A</option>
-                                <option value="B">Grade B</option>
-                                <option value="C">Grade C</option>
-                                <option value="D">Grade D</option>
-                            </select>
-                            <select id="statusFilter" onchange="filterStudents()">
-                                <option value="">All Status</option>
-                                <option value="Active">Active</option>
-                                <option value="Inactive">Inactive</option>
-                                <option value="Pending">Pending</option>
-                            </select>
-                        </div>
-
-                        <!-- Students Table -->
-                        <div class="table-container">
-                            <div class="table-header">
-                                <h3>Students List</h3>
-                            </div>
-                            <table id="studentsTable">
-                                <thead>
-                                    <tr>
-                                        <th>Student</th>
-                                        <th>Course</th>
-                                        <th>Grade</th>
-                                        <th>Progress</th>
-                                        <th>Status</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="studentsTableBody">
-                                    <!-- Data will be populated by JavaScript -->
-                                </tbody>
-                            </table>
-                        </div>
-
-                    </div>
-
-
-                    <!-- Courses Section -->
-                    <div id="courses" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>My Courses</h2>
-                                <p class="header-subtitle">Manage curriculum for your assigned courses</p>
-                            </div>
-                            <div class="header-actions">
-                                <div class="search-box" style="width: 300px;">
-                                    <span class="search-icon">🔍</span>
-                                    <input type="text" id="courseSearchInput" placeholder="Search courses..."
-                                        onkeyup="filterCourses()">
-                                </div>
-                            </div>
-                        </header>
-
-                        <div class="courses-grid" id="coursesGrid">
-                            <!-- Courses will be populated here -->
-                        </div>
-                    </div>
-
-
-                    <!-- Assignments Section -->
-                    <div id="assignments" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>Assignments</h2>
-                                <p class="header-subtitle">Create and manage student assignments</p>
-                            </div>
-                            <div class="header-actions">
-                                <button class="btn btn-primary" onclick="showCreateAssignment()">➕ Create
-                                    Assignment</button>
-                            </div>
-                        </header>
-
-                        <div class="dashboard-grid">
-                            <div class="section-card">
-                                <h3>➕ New Assignment</h3>
-                                <form style="margin-top: 20px;"
-                                    action="${pageContext.request.contextPath}/teacher/dashboard" method="POST">
-                                    <input type="hidden" name="action" value="createAssignment">
-                                    <div class="form-group">
-                                        <label for="assignTitle">Assignment Title</label>
-                                        <input type="text" id="assignTitle" name="title"
-                                            placeholder="e.g. Final Project" required>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="assignCourse">Course</label>
-                                        <select id="assignCourse" name="className" required>
-                                            <option value="">Select one of your courses</option>
-                                            <c:forEach var="cls" items="${classes}">
-                                                <option value="${cls}">${cls}</option>
-                                            </c:forEach>
-                                        </select>
-                                    </div>
-                                    <div class="form-group"
-                                        style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                                        <div>
-                                            <label for="assignDueDate">Due Date</label>
-                                            <input type="date" id="assignDueDate" name="deadline" required>
-                                        </div>
-                                        <div>
-                                            <label for="assignPoints">Points</label>
-                                            <input type="number" id="assignPoints" name="points" placeholder="100"
-                                                required>
-                                        </div>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="assignDesc">Description *</label>
-                                        <textarea id="assignDesc" name="description" rows="3" required
-                                            style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--glass-border);border-radius:8px;color:white;padding:10px;font-size:14px;resize:vertical;"
-                                            placeholder="What should students do?"></textarea>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="assignGoogleForm">Google Form URL <span
-                                                style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                                        <input type="url" id="assignGoogleForm" name="googleFormUrl"
-                                            placeholder="https://forms.gle/...">
-                                    </div>
-                                    <c:if test="${not empty error}">
-                                        <p style="color:#f87171;margin-bottom:12px;">⚠ ${error}</p>
-                                    </c:if>
-                                    <button type="submit" class="btn btn-primary" style="width: 100%;">
-                                        Create Assignment
-                                    </button>
-                                </form>
-                            </div>
-
-                            <div class="section-card">
-                                <h3>📋 Recent Assignments</h3>
-                                <div class="upcoming-list" id="assignmentList" style="margin-top: 16px;">
-                                    <c:forEach var="assignment" items="${assignments}">
-                                        <div class="upcoming-item"
-                                            style="cursor:pointer;flex-direction:column;align-items:flex-start;gap:6px;"
-                                            onclick="openAssignmentDetail('${assignment.title}')">
-                                            <div
-                                                style="display:flex;justify-content:space-between;width:100%;align-items:center;">
-                                                <div class="upcoming-info">
-                                                    <h4>${assignment.title}</h4>
-                                                    <p>${assignment.className} • Due ${assignment.formattedDeadline} •
-                                                        ${assignment.points} pts</p>
-                                                </div>
-                                                <div
-                                                    class="upcoming-status ${assignment.status == 'Closed' ? 'status-closed' : ''}">
-                                                    ${assignment.status}</div>
-                                            </div>
-                                            <p style="font-size:13px;color:var(--text-muted);margin:0;">
-                                                <c:out value="${assignment.description}" />
-                                            </p>
-                                            <c:if test="${not empty assignment.googleFormUrl}">
-                                                <a href="${assignment.googleFormUrl}" target="_blank"
-                                                    onclick="event.stopPropagation()"
-                                                    style="font-size:12px;color:#38bdf8;text-decoration:none;">
-                                                    🔗 Google Form attached
-                                                </a>
-                                            </c:if>
-                                        </div>
-                                    </c:forEach>
-                                    <c:if test="${empty assignments}">
-                                        <div style="text-align:center;padding:40px 20px;color:var(--text-muted);">
-                                            <div style="font-size:48px;margin-bottom:12px;">📝</div>
-                                            <p>No assignments yet. Create your first one!</p>
-                                        </div>
-                                    </c:if>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-
-                    <!-- Course Detail Section (Hidden) -->
-                    <div id="course-detail" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <button class="btn-back" onclick="navigateTo(event, 'courses')">← Back to
-                                    Courses</button>
-                                <h2 id="cdTitle">Web Development Bootcamp</h2>
-                                <p class="header-subtitle">Course Management & Analytics</p>
-                            </div>
-                        </header>
-                        <div class="dashboard-grid">
-                            <div class="section-card">
-                                <h3>Course Modules</h3>
-                                <div class="upcoming-list" id="cdModules">
-                                    <!-- Populated by JS -->
-                                </div>
-                            </div>
-                            <div class="section-card">
-                                <h3>Performance Overview</h3>
-                                <div class="stats-grid"
-                                    style="grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px;">
-                                    <div class="stat-card" style="padding: 15px;">
-                                        <div class="stat-label">Avg Grade</div>
-                                        <div class="stat-value">88%</div>
-                                    </div>
-                                    <div class="stat-card" style="padding: 15px;">
-                                        <div class="stat-label">Completion</div>
-                                        <div class="stat-value">72%</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Assignment Detail Section (Hidden) -->
-                    <div id="assignment-detail" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <button class="btn-back" onclick="navigateTo(event, 'assignments')">← Back</button>
-                                <h2 id="adTitle">Assignment Details</h2>
-                            </div>
-                        </header>
-                        <div class="table-container">
-                            <div class="table-header">
-                                <h3>Student Submissions</h3>
-                                <button class="btn btn-secondary">Download All</button>
-                            </div>
-                            <table id="adTable">
-                                <thead>
-                                    <tr>
-                                        <th>Student</th>
-                                        <th>Status</th>
-                                        <th>File</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="adBody">
-                                    <!-- Populated by JS -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Analytics Section -->
-                    <div id="analytics" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>Analytics & Reports</h2>
-                                <p class="header-subtitle">Track performance and generate insights</p>
-                            </div>
-                            <div class="header-actions">
-                                <button class="btn btn-secondary" onclick="generateReport()">📊 Generate Report</button>
-                            </div>
-                        </header>
-                        <div class="stats-grid">
-                            <div class="stat-card">
-                                <div class="stat-label">Engagement Rate</div>
-                                <div class="stat-value">78%</div>
-                                <div class="stat-change">↑ 6% from last month</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">Active Hours</div>
-                                <div class="stat-value">1,247</div>
-                                <div class="stat-change">↑ 124 hours this month</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">Success Rate</div>
-                                <div class="stat-value">91%</div>
-                                <div class="stat-change">↑ 4% from last month</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">Retention Rate</div>
-                                <div class="stat-value">96%</div>
-                                <div class="stat-change">↑ 2% from last month</div>
-                            </div>
-                        </div>
-
-                        <!-- Charts Grid -->
-                        <div class="charts-grid">
-                            <!-- Performance Chart -->
-                            <div class="section-card">
-                                <div class="section-header">
-                                    <h3 class="section-title">Average Performance (Last 6 Months)</h3>
-                                </div>
-                                <div class="chart-container">
-                                    <div class="bar-group" data-tooltip="Sep: 65%">
-                                        <div class="bar" style="height: 65%;"></div>
-                                        <span class="bar-label">Sep</span>
-                                    </div>
-                                    <div class="bar-group" data-tooltip="Oct: 72%">
-                                        <div class="bar" style="height: 72%;"></div>
-                                        <span class="bar-label">Oct</span>
-                                    </div>
-                                    <div class="bar-group" data-tooltip="Nov: 68%">
-                                        <div class="bar" style="height: 68%;"></div>
-                                        <span class="bar-label">Nov</span>
-                                    </div>
-                                    <div class="bar-group" data-tooltip="Dec: 85%">
-                                        <div class="bar" style="height: 85%;"></div>
-                                        <span class="bar-label">Dec</span>
-                                    </div>
-                                    <div class="bar-group" data-tooltip="Jan: 78%">
-                                        <div class="bar" style="height: 78%;"></div>
-                                        <span class="bar-label">Jan</span>
-                                    </div>
-                                    <div class="bar-group" data-tooltip="Feb: 88%">
-                                        <div class="bar" style="height: 88%;"></div>
-                                        <span class="bar-label">Feb</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Distribution Chart -->
-                            <div class="section-card">
-                                <div class="section-header">
-                                    <h3 class="section-title">Grade Distribution</h3>
-                                </div>
-                                <div class="pie-chart-container">
-                                    <div class="pie-chart"></div>
-                                </div>
-                                <div class="chart-legend">
-                                    <div class="legend-item">
-                                        <div class="legend-color" style="background: #34d399;"></div>
-                                        <span>A (35%)</span>
-                                    </div>
-                                    <div class="legend-item">
-                                        <div class="legend-color" style="background: #60a5fa;"></div>
-                                        <span>B (30%)</span>
-                                    </div>
-                                    <div class="legend-item">
-                                        <div class="legend-color" style="background: #fbbf24;"></div>
-                                        <span>C (20%)</span>
-                                    </div>
-                                    <div class="legend-item">
-                                        <div class="legend-color" style="background: #f87171;"></div>
-                                        <span>D (15%)</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Settings Section -->
-                    <div id="settings" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>Settings</h2>
-                                <p class="header-subtitle">Manage your account and preferences</p>
-                            </div>
-                            <div class="header-actions">
-                                <button class="btn btn-primary" onclick="showToast('All changes saved', 'success')">💾
-                                    Save
-                                    All</button>
-                            </div>
-                        </header>
-                        <div class="settings-section">
-                            <!-- Profile Settings -->
-                            <div class="section-card">
-                                <h3>Profile Information</h3>
-                                <form style="margin-top: 20px;"
-                                    onsubmit="event.preventDefault(); showToast('Profile updated!', 'success')">
-                                    <div class="form-group">
-                                        <label>Full Name</label>
-                                        <input type="text" value="${user.name}">
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Email Address</label>
-                                        <input type="email" value="${user.email}">
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Department</label>
-                                        <input type="text" value="Computer Science" disabled
-                                            style="background: rgba(255,255,255,0.05); color: #6b7280;">
-                                    </div>
-                                    <button class="btn btn-primary">Save Profile</button>
-                                </form>
-                            </div>
-
-                            <!-- Notification Settings -->
-                            <div class="section-card">
-                                <h3>Notifications</h3>
-                                <div style="margin-top: 24px;">
-                                    <div class="toggle-switch">
-                                        <span class="toggle-label">Email Notifications</span>
-                                        <input type="checkbox" class="toggle-input" checked>
-                                    </div>
-                                    <div class="toggle-switch">
-                                        <span class="toggle-label">SMS Alerts</span>
-                                        <input type="checkbox" class="toggle-input">
-                                    </div>
-                                    <div class="toggle-switch">
-                                        <span class="toggle-label">Assignment Submissions</span>
-                                        <input type="checkbox" class="toggle-input" checked>
-                                    </div>
-                                    <div class="toggle-switch" style="border-bottom: none;">
-                                        <span class="toggle-label">Weekly Reports</span>
-                                        <input type="checkbox" class="toggle-input" checked>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </main>
-
-                <!-- Add/Edit Student Modal -->
-                <div class="modal" id="studentModal">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h3 id="modalTitle">Enroll New Student</h3>
-                            <p>Add a student to one of your courses</p>
-                        </div>
-                        <form id="studentForm" onsubmit="saveStudent(event)">
-                            <div class="form-group">
-                                <label for="studentName">Full Name</label>
-                                <input type="text" id="studentName" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="studentEmail">Email Address</label>
-                                <input type="email" id="studentEmail" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="studentCourse">Course</label>
-                                <select id="studentCourse" required>
-                                    <option value="">Select a course</option>
-                                    <option value="Web Development">Web Development</option>
-                                    <option value="Data Science">Data Science</option>
-                                    <option value="UI/UX Design">UI/UX Design</option>
-                                    <option value="Mobile Development">Mobile Development</option>
-                                    <option value="Cloud Computing">Cloud Computing</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="studentGrade">Initial Grade (Optional)</label>
-                                <select id="studentGrade">
-                                    <option value="Pending">Pending</option>
-                                    <option value="A">A</option>
-                                    <option value="B">B</option>
-                                    <option value="C">C</option>
-                                    <option value="D">D</option>
-                                </select>
-                            </div>
-                            <div class="modal-actions">
-                                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                                <button type="submit" class="btn btn-primary">Enroll Student</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-                <!-- Syllabus Modal -->
-                <div class="modal" id="syllabusModal">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h3 id="syllabusTitle">Course Syllabus</h3>
-                            <p>Curriculum Details</p>
-                        </div>
-                        <div style="padding: 24px; color: #a0aec0; line-height: 1.6;">
-                            <h4>Module 1: Introduction</h4>
-                            <p>Overview of core concepts and environment setup.</p>
-                            <br>
-                            <h4>Module 2: Core Fundamentals</h4>
-                            <p>Deep dive into syntax, structures, and algorithms.</p>
-                            <br>
-                            <h4>Module 3: Advanced Topics</h4>
-                            <p>Frameworks, state management, and deployment strategies.</p>
-                        </div>
-                        <div class="modal-actions">
-                            <button type="button" class="btn btn-primary" onclick="closeSyllabusModal()">Close</button>
-                        </div>
-                    </div>
-                </div>
-
-
-                <!-- Grading Modal -->
-                <div class="modal" id="gradeModal">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h3 id="gradeModalTitle">Grade Submission</h3>
-                            <p id="gradeModalSubtitle">Assign marks for assignment</p>
-                        </div>
-                        <form id="gradeForm" onsubmit="submitGrade(event)">
-                            <input type="hidden" id="gradeSubmissionId">
-                            <div class="form-group">
-                                <label>Student</label>
-                                <input type="text" id="gradeStudentName" disabled
-                                    style="background: rgba(255,255,255,0.05); color: #6b7280;">
-                            </div>
-                            <div class="form-group">
-                                <label>Marks (Max: <span id="gradeMaxPoints">100</span>)</label>
-                                <input type="number" id="gradeValue" required min="0">
-                            </div>
-                            <div class="modal-actions">
-                                <button type="button" class="btn btn-secondary"
-                                    onclick="closeGradeModal()">Cancel</button>
-                                <button type="submit" class="btn btn-primary">Publish Grade</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-                <script>
-                    // --- TOAST NOTIFICATIONS ---
-                    function showToast(message, type = 'info') {
-                        const container = document.getElementById('toastContainer');
-                        const toast = document.createElement('div');
-                        toast.className = `toast \${type}`;
-
-                        const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
-                        toast.innerHTML = `<span>\${icon}</span> <span>\${message}</span>`;
-
-                        container.appendChild(toast);
-
-                        setTimeout(() => {
-                            toast.style.animation = 'fadeOut 0.3s forwards';
-                            setTimeout(() => toast.remove(), 300);
-                        }, 3000);
-                    }
-
-                    // Sidebar toggle for mobile
-                    function toggleSidebar() {
-                        const sidebar = document.querySelector('.sidebar');
-                        const hamburger = document.querySelector('.hamburger');
-                        const overlay = document.querySelector('.sidebar-overlay');
-
-                        sidebar.classList.toggle('active');
-                        hamburger.classList.toggle('active');
-                        overlay.classList.toggle('active');
-                    }
-
-                    // Navigation between sections
-                    function navigateTo(event, sectionId) {
-                        if (event) event.preventDefault();
-
-                        // Hide all sections
-                        document.querySelectorAll('.content-section').forEach(section => {
-                            section.classList.remove('active');
-                        });
-
-                        // Show selected section
-                        document.getElementById(sectionId).classList.add('active');
-
-                        // Update active nav link
-                        document.querySelectorAll('.nav-link').forEach(link => {
-                            link.classList.remove('active');
-                            if (link.getAttribute('onclick') && link.getAttribute('onclick').includes(sectionId)) {
-                                link.classList.add('active');
-                            }
-                        });
-
-                        // Close sidebar on mobile after navigation
-                        if (window.innerWidth <= 768) {
-                            const sidebar = document.querySelector('.sidebar');
-                            if (sidebar.classList.contains('active')) toggleSidebar();
-                        }
-
-                        // Helpful toast for stat card clicks
-                        if (sectionId !== 'dashboard' && event && event.currentTarget.classList.contains('stat-card')) {
-                            // showToast(`Navigated to ${sectionId}`, 'info');
-                        }
-                    }
-
-                    // --- REAL FUNCTIONALITY ---
-
-
-
-                    function toggleControl(btn) {
-                        btn.classList.toggle('off');
-                        btn.style.opacity = btn.classList.contains('off') ? '0.5' : '1';
-
-                        const type = btn.title.includes('Mic') ? 'Microphone' : 'Camera';
-                        const state = btn.classList.contains('off') ? 'muted' : 'active';
-                        showToast(`\${type} is now \${state}`, 'info');
-                    }
-
-                    // Generate Report
-                    function generateReport() {
-                        showToast('Generating report...', 'info');
-
-                        setTimeout(() => {
-                            // Create a mock CSV
-                            const csvContent = "data:text/csv;charset=utf-8,"
-                                + "Student,Course,Grade,Status\n"
-                                + "Emma Johnson,Web Dev,A,Active\n"
-                                + "Michael Chen,Data Science,A,Active\n"
-                                + "Sarah Williams,UI/UX,B,Active";
-
-                            const encodedUri = encodeURI(csvContent);
-                            const link = document.createElement("a");
-                            link.setAttribute("href", encodedUri);
-                            link.setAttribute("download", "student_report_2024.csv");
-                            document.body.appendChild(link); // Required for FF
-
-                            link.click();
-                            link.remove();
-
-                            showToast('Report downloaded successfully!', 'success');
-                        }, 1000);
-                    }
-
-                    // Assignment Creation
-                    function showCreateAssignment() {
-                        // Focus on title
-                        document.getElementById('assignTitle').focus();
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }
-
-                    function createAssignment(event) {
-                        event.preventDefault();
-                        const title = document.getElementById('assignTitle').value;
-
-                        // Add to list
-                        const list = document.getElementById('assignmentList');
-                        const newItem = `
-                <div class="upcoming-item" style="animation: slideIn 0.3s forwards">
-                    <div class="upcoming-info">
-                        <h4>\${title}</h4>
-                        <p>Web Development • Just Created</p>
-                    </div>
-                    <div class="upcoming-status">Draft</div>
-                </div>
-            `;
-                        list.insertAdjacentHTML('afterbegin', newItem);
-
-                        showToast(`Assignment "\${title}" created successfully!`, 'success');
-                        event.target.reset();
-                    }
-
-                    // Student Detail Editing
-                    function saveDetails() {
-                        const btn = document.getElementById('saveDetailBtn');
-                        const originalText = btn.innerHTML;
-
-                        btn.innerHTML = 'Saving...';
-                        setTimeout(() => {
-                            btn.innerHTML = '✅ Saved';
-                            showToast('Student profile updated', 'success');
-                            setTimeout(() => {
-                                btn.innerHTML = originalText;
-                            }, 2000);
-                        }, 800);
-                    }
-
-                    // Syllabus & Roster
-                    function viewSyllabus(title) {
-                        document.getElementById('syllabusTitle').textContent = `Syllabus: \${title}`;
-                        document.getElementById('syllabusModal').classList.add('active');
-                    }
-
-                    function closeSyllabusModal() {
-                        document.getElementById('syllabusModal').classList.remove('active');
-                    }
-
-                    function viewRoster(courseTitle) {
-                        document.getElementById('searchInput').value = courseTitle;
-                        filterStudents(); // Filter list
-                        navigateTo(null, 'students'); // Go to students
-                        showToast(`Filtering students for \${courseTitle}`, 'info');
-                    }
-
-                    // ==========================================
-                    // REAL DATA & LOGIC
-                    // ==========================================
-
-                    // --- Data from Backend ---
-                    let students = (window.serverData.enrollments || []).map(e => ({
-                        id: e.student.id,
-                        name: e.student.name,
-                        email: e.student.email,
-                        course: e.className,
-                        grade: "N/A", // We'll compute this or show N/A
-                        progress: 0,
-                        status: "Active"
-                    }));
-
-                    const courses = (window.serverData.classes || []).map((c, idx) => ({
-                        id: idx + 1,
-                        title: c,
-                        students: (window.serverData.enrollments || []).filter(e => e.className === c).length,
-                        assignments: (window.serverData.assignments || []).filter(a => a.className === c).length,
-                        rating: 4.8,
-                        progress: 0,
-                        color: "#3b82f6",
-                        image: "linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)"
-                    }));
-
-                    let editingId = null;
-
-                    // Load Dashboard Content
-                    function loadDashboard() {
-                        renderActivityFeed();
-                        renderUpcoming();
-                    }
-
-                    function renderActivityFeed() {
-                        const feed = document.querySelector('.activity-feed');
-                        const activities = [];
-
-                        // Add submissions to activities
-                        (window.serverData.recentSubmissions || []).forEach(sub => {
-                            activities.push({
-                                icon: '📝',
-                                text: `\${sub.student.name} submitted "\${sub.assignment.title}"`,
-                                time: sub.submittedAt ? new Date(sub.submittedAt).toLocaleDateString() : 'Recently'
-                            });
-                        });
-
-                        // Add new assignments to activities
-                        (window.serverData.assignments || []).forEach(asgn => {
-                            activities.push({
-                                icon: '📢',
-                                text: `New assignment posted: "\${asgn.title}"`,
-                                time: 'Recently'
-                            });
-                        });
-
-                        if (activities.length === 0) {
-                            feed.innerHTML = '<p style="padding: 20px; color: var(--text-muted);">No recent activity</p>';
-                            return;
-                        }
-
-                        // Sort by time (if we had real timestamps for all, for now just show)
-                        feed.innerHTML = activities.slice(0, 5).map(act => `
-                            <div class="activity-item">
-                                <div class="activity-icon">\${act.icon}</div>
-                                <div class="activity-content">
-                                    <div class="activity-text">\${act.text}</div>
-                                    <div class="activity-time">\${act.time}</div>
-                                </div>
-                            </div>
-                        `).join('');
-                    }
-
-                    function renderUpcoming() {
-                        const list = document.querySelector('.upcoming-list');
-                        const assignments = (window.serverData.assignments || [])
-                            .filter(a => new Date(a.deadline) > new Date())
-                            .sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
-
-                        if (assignments.length === 0) {
-                            list.innerHTML = '<p style="color: var(--text-muted); padding: 10px;">No upcoming deadlines</p>';
-                            return;
-                        }
-
-                        list.innerHTML = assignments.slice(0, 3).map(asgn => `
-                            <div class="upcoming-item">
-                                <div class="upcoming-info">
-                                    <h4>\${asgn.title}</h4>
-                                    <p>\${asgn.className} • Due \${new Date(asgn.deadline).toLocaleDateString()}</p>
-                                </div>
-                                <div class="upcoming-status">Due</div>
-                            </div>
-                        `).join('');
-                    }
-
-                    // Render Students
-                    function renderStudents(data = students) {
-                        const tbody = document.getElementById('studentsTableBody');
-                        if (!tbody) return;
-                        tbody.innerHTML = '';
-
-                        if (data.length === 0) {
-                            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--text-muted);">No students found</td></tr>';
-                            return;
-                        }
-
-                        data.forEach(student => {
-                            const initials = student.name.split(' ').map(n => n[0]).join('');
-                            const statusClass = student.status === 'Active' ? 'badge-success' :
-                                student.status === 'Pending' ? 'badge-warning' : 'badge-danger';
-
-                            const row = `
-                    <tr onclick="openStudentDetail(\${student.id})" style="cursor: pointer;">
-                        <td>
-                            <div class="student-info">
-                                <div class="student-avatar">\${initials}</div>
-                                <div class="student-details">
-                                    <div class="student-name">\${student.name}</div>
-                                    <div class="student-email">\${student.email}</div>
-                                </div>
-                            </div>
-                        </td>
-                        <td>\${student.course}</td>
-                        <td><span class="badge badge-info">\${student.grade}</span></td>
-                        <td>
-                            <div class="progress-bar">
-                                <div class="progress-fill" style="width: \${student.progress}%"></div>
-                            </div>
-                        </td>
-                        <td><span class="badge \${statusClass}">\${student.status}</span></td>
-                        <td>
-                            <div class="actions">
-                                <button class="action-btn" onclick="event.stopPropagation(); editStudent(\${student.id})" title="Edit">✏️</button>
-                                <button class="action-btn" onclick="event.stopPropagation(); deleteStudent(\${student.id})" title="Remove">🗑️</button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-                            tbody.innerHTML += row;
-                        });
-                    }
-
-                    // Render Courses Grid
-                    function renderCourses() {
-                        const grid = document.getElementById('coursesGrid');
-                        if (!grid) return;
-                        grid.innerHTML = '';
-
-                        if (courses.length === 0) {
-                            grid.innerHTML = '<p style="padding: 20px; color: var(--text-muted);">No courses assigned</p>';
-                            return;
-                        }
-
-                        courses.forEach(course => {
-                            const card = `
-                <div class="course-card">
-                    <div class="course-content">
-                        <div class="course-title">\${course.title}</div>
-                        <div class="course-meta">
-                            <span>👥 \${course.students} Students Enrolled</span>
-                            <span>📋 \${course.assignments} Assignments</span>
-                        </div>
-                        <div class="course-actions">
-                            <button class="btn-outline" onclick="viewRoster('\${course.title}')">View Roster</button>
-                        </div>
-                    </div>
-                </div>`;
-                            grid.innerHTML += card;
-                        });
-                    }
-
-                    // Filter students logic
-                    function filterStudents() {
-                        const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-                        const gradeFilter = document.getElementById('gradeFilter').value;
-                        const statusFilter = document.getElementById('statusFilter').value;
-
-                        const filtered = students.filter(student => {
-                            const matchesSearch = student.name.toLowerCase().includes(searchTerm) ||
-                                student.email.toLowerCase().includes(searchTerm) ||
-                                student.course.toLowerCase().includes(searchTerm);
-                            const matchesGrade = !gradeFilter || student.grade === gradeFilter;
-                            const matchesStatus = !statusFilter || student.status === statusFilter;
-
-                            return matchesSearch && matchesGrade && matchesStatus;
-                        });
-
-                        renderStudents(filtered);
-                    }
-
-                    // --- Interactive Chat Logic ---
-
-                    function handleEnter(event, inputId, containerId) {
-                        if (event.key === 'Enter') {
-                            sendMessage(inputId, containerId);
-                        }
-                    }
-
-                    function sendMessage(inputId, containerId) {
-                        const input = document.getElementById(inputId);
-                        const container = document.getElementById(containerId);
-                        const text = input.value.trim();
-
-                        if (!text) return;
-
-                        // Add user message
-                        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-                        // Different markup for Live Chat vs Messages
-                        if (containerId === 'liveChatMessages') {
-                            container.innerHTML += `
-                    <div class="chat-msg">
-                        <span class="msg-author" style="color: var(--accent-cyan);">You:</span>
-                        <span class="msg-text">\${text}</span>
-                    </div>
-                `;
-                        } else {
-                            container.innerHTML += `
-                    <div class="message sent">
-                         <p>\${text}</p>
-                         <span class="msg-time">\${time}</span>
-                    </div>
-                `;
-                        }
-
-                        input.value = '';
-                        container.scrollTop = container.scrollHeight;
-
-                        // Simulate Reply
-                        setTimeout(() => {
-                            const replies = [
-                                "That sounds good!",
-                                "I'll check that right away.",
-                                "Thanks for letting me know.",
-                                "Could you clarify that?"
-                            ];
-                            const randomReply = replies[Math.floor(Math.random() * replies.length)];
-
-                            if (containerId === 'liveChatMessages') {
-                                container.innerHTML += `
-                        <div class="chat-msg">
-                            <span class="msg-author">Student:</span>
-                            <span class="msg-text">\${randomReply}</span>
-                        </div>
-                    `;
-                            } else {
-                                const replyTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                container.innerHTML += `
-                        <div class="message received">
-                             <p>\${randomReply}</p>
-                             <span class="msg-time">\${replyTime}</span>
-                        </div>
-                    `;
-                            }
-                            container.scrollTop = container.scrollHeight;
-                        }, 1500);
-                    }
-
-                    // Interactive Contact Switching
-                    function switchContact(name) {
-                        document.getElementById('currentContactName').textContent = name;
-                        document.getElementById('mainChatMessages').innerHTML = `
-                <div style="text-align: center; color: #6b7280; padding: 20px; font-size: 13px;">
-                    Beginning of chat history with \${name}
-                </div>
-            `;
-                        // Highlight active contact
-                        document.querySelectorAll('.contact-item').forEach(el => el.classList.remove('active'));
-                        // Find the element clicked - this relies on event bubbling or explicit binding
-                        // For now, simpler to just re-render or let the click handler handle class
-                        // Since we pass name string, we just look for text match or assume event.target
-                        // But for simplicity in this prototype:
-                        const items = document.querySelectorAll('.contact-item');
-                        items.forEach(item => {
-                            if (item.querySelector('h4').textContent === name) item.classList.add('active');
-                        });
-                    }
-
-                    // Messaging Features
-                    function startNewMessage() {
-                        const name = prompt("Enter student name to message:");
-                        if (name) {
-                            switchContact(name);
-                            showToast(`Started new chat with \${name}`, 'success');
-                        }
-                    }
-
-                    function viewCurrentContactProfile() {
-                        const name = document.getElementById('currentContactName').textContent;
-                        // Reuse student detail modal? First find the student
-                        const student = students.find(s => s.name === name);
-                        if (student) {
-                            openStudentDetail(student.id);
-                        } else {
-                            // If not in student list (e.g. "Web Dev Class"), show basic info
-                            showToast(`Profile for \${name}: No detailed records found.`, 'info');
-                        }
-                    }
-
-                    // Student Detail Navigation
-                    function openStudentDetail(id) {
-                        const student = students.find(s => s.id == id);
-                        if (student) {
-                            document.getElementById('detailName').textContent = student.name;
-                            document.getElementById('detailEmail').textContent = student.email;
-                            document.getElementById('detailSidebarName').textContent = student.name;
-                            document.getElementById('detailSidebarCourse').textContent = student.course;
-                            document.getElementById('detailAvatar').textContent = student.name.split(' ').map(n => n[0]).join('');
-
-                            // Populate dynamic sections
-                            renderDetailAssignments(student);
-                            renderDetailCourses(student);
-
-                            // Reset to overview tab
-                            switchStudentTab('overview');
-                        }
-                        navigateTo({ preventDefault: () => { } }, 'student-detail');
-                    }
-
-                    function switchStudentTab(tabId) {
-                        // Update links
-                        document.querySelectorAll('.tab-link').forEach(link => {
-                            link.classList.remove('active');
-                            if (link.textContent.toLowerCase() === tabId) link.classList.add('active');
-                        });
-
-                        // Update content
-                        document.querySelectorAll('.tab-content').forEach(content => {
-                            content.classList.remove('active');
-                        });
-                        document.getElementById(`tab-\${tabId}`).classList.add('active');
-                    }
-
-                    function renderDetailAssignments(student) {
-                        const tbody = document.getElementById('detailAssignmentsTable');
-                        const submissions = (window.serverData.recentSubmissions || []).filter(s => s.student.id == student.id);
-
-                        if (submissions.length === 0) {
-                            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted);">No submissions found for this student.</td></tr>';
-                            return;
-                        }
-
-                        tbody.innerHTML = submissions.map(sub => `
-                            <tr>
-                                <td>\${sub.assignment.title}</td>
-                                <td><span class="badge \${sub.grade != null ? 'badge-success' : 'badge-warning'}">\${sub.grade != null ? 'Graded' : 'Pending'}</span></td>
-                                <td>\${sub.grade != null ? (sub.grade + '/' + sub.assignment.points) : '-'}</td>
-                                <td>\${sub.submittedAt ? new Date(sub.submittedAt).toLocaleDateString() : 'N/A'}</td>
-                            </tr>
-                        `).join('');
-                    }
-
-                    function renderDetailCourses(student) {
-                        const container = document.getElementById('detailCourses');
-                        container.innerHTML = `
-                            <div class="upcoming-item">
-                                <div class="upcoming-info">
-                                    <h4>\${student.course}</h4>
-                                    <p>Core Curriculum • Active</p>
-                                </div>
-                                <div class="upcoming-status">Enrolled</div>
-                            </div>
-                        `;
-                    }
-
-                    function openAddModal() {
-                        showToast('Direct enrollment from teacher dashboard coming soon. Please use Admin panel for student allocations.', 'info');
-                    }
-
-                    function editStudent(id) {
-                        showToast('Edit student profile feature coming soon.', 'info');
-                    }
-
-                    function deleteStudent(id) {
-                        showToast('Remove student feature coming soon. Please use Admin panel for student management.', 'info');
-                    }
-
-                    function exportData() {
-                        showToast('Downloading roster as CSV...', 'info');
-                    }
-
-                    // Close modal on outside click
-                    document.getElementById('studentModal').addEventListener('click', function (e) {
-                        if (e.target === this) {
-                            closeModal();
-                        }
+                    return response.text().then(text => {
+                        let msg = text;
+                        try { msg = JSON.parse(text).message || text; } catch (e) { /* not json */ }
+                        throw new Error(msg);
                     });
+                })
+                .then(json => {
+                    showToast(json.message || 'Grade submitted successfully.', 'success');
+                    closeGradeModal();
+                    setTimeout(() => window.location.reload(), 700);
+                })
+                .catch(err => {
+                    console.error(err);
+                    showToast(err.message && err.message.indexOf('Failed') >= 0 ? err.message : ('Error: ' + err.message), 'error');
+                });
+            });
+        }
 
-                    document.getElementById('syllabusModal').addEventListener('click', function (e) {
-                        if (e.target === this) {
-                            closeSyllabusModal();
-                        }
-                    });
+        // ===== Navigation =====
+        window.switchSection = function(sectionId) {
+            document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
 
-                    // Initialize
-                    loadDashboard();
-                    renderStudents();
-                    renderCourses();
+            const target = document.getElementById('section-' + sectionId);
+            if (!target) return;
+            target.classList.add('active');
 
-                    // ==========================================
-                    // STREAMING LOGIC (Google Meet Style)
-                    // ==========================================
+            document.querySelectorAll('.nav-item').forEach(link => {
+                const href = link.getAttribute('href') || '';
+                if (href.indexOf('section=' + sectionId) >= 0 || (sectionId === 'overview' && href.indexOf('/dashboard') >= 0 && href.indexOf('section=') < 0)) {
+                    link.classList.add('active');
+                }
+            });
 
-                    let mediaStream = null;
-                    let screenStream = null;
-                    let isMicOn = true;
-                    let isCamOn = true;
+            const url = new URL(window.location);
+            if (sectionId === 'overview') url.searchParams.delete('section');
+            else url.searchParams.set('section', sectionId);
+            window.history.pushState({}, '', url);
+        };
 
-                    async function toggleStream() {
-                        const videoElement = document.getElementById('webcamFeed');
-                        const status = document.getElementById('streamStatus');
-                        const text = document.getElementById('streamText');
-                        const placeholder = document.getElementById('videoPlaceholder');
-                        const controls = document.querySelector('.meet-controls-bar');
+        function setupNavigation() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const section = urlParams.get('section') || 'overview';
+            window.switchSection(section);
+        }
 
-                        if (!mediaStream && !screenStream) {
-                            // Start Camera Stream
-                            try {
-                                status.textContent = 'Connecting...';
-                                mediaStream = await navigator.mediaDevices.getUserMedia({
-                                    video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-                                    audio: true
-                                });
+        // ===== Modals =====
+        window.openModal = function(id) {
+            const el = document.getElementById(id);
+            if (el) { el.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+        };
+        window.closeModal = function(id) {
+            const el = document.getElementById(id);
+            if (el) { el.style.display = 'none'; document.body.style.overflow = ''; }
+        };
 
-                                videoElement.srcObject = mediaStream;
-                                videoElement.onloadedmetadata = () => {
-                                    videoElement.play();
-                                };
-                                videoElement.classList.add('active');
+        window.openCreateModal = function() {
+            openModal('createAssignmentModal');
+        };
+        window.closeCreateModal = function() {
+            closeModal('createAssignmentModal');
+            const form = document.getElementById('createAssignmentForm');
+            if (form) form.reset();
+        };
 
-                                // Hide placeholder, show controls
-                                if (placeholder) placeholder.style.display = 'none';
-                                if (controls) controls.style.opacity = '1';
+        window.openGradeModal = function(subId) {
+            const sub = recentSubmissions.find(s => s.id === subId);
+            if (!sub) return;
+            document.getElementById('gradeSubmissionId').value = sub.id;
+            document.getElementById('gradeStudentName').textContent = sub.student ? sub.student.name : 'Student';
+            document.getElementById('gradeAssignmentTitle').textContent = sub.assignment ? sub.assignment.title : 'Assignment';
 
-                                status.textContent = 'Live • 720p';
-                                text.textContent = 'Braodcasting';
-                                showToast('You joined the call', 'success');
+            const fileLink = document.getElementById('gradeFileLink');
+            if (sub.fileUrl) {
+                fileLink.href = contextPath + '/submissionDetails?id=' + sub.id;
+                fileLink.style.display = 'inline-block';
+            } else {
+                fileLink.style.display = 'none';
+            }
 
-                            } catch (err) {
-                                console.error("Error accessing webcam: ", err);
-                                showToast('Could not access camera: ' + err.message, 'error');
-                            }
-                        } else {
-                            // End Call / Stop Stream
-                            stopMediaStream();
-                            if (screenStream) stopScreenShare();
+            document.getElementById('gradeInput').value = sub.grade != null ? sub.grade : '';
+            document.getElementById('feedbackInput').value = sub.feedback || '';
+            openModal('gradeModal');
+        };
+        window.closeGradeModal = function() {
+            closeModal('gradeModal');
+            const form = document.getElementById('gradeForm');
+            if (form) form.reset();
+        };
 
-                            if (placeholder) placeholder.style.display = 'flex';
-                            status.textContent = 'Ready to join?';
-                            text.textContent = 'Click "Start Camera" to begin.';
-                            showToast('You left the call', 'info');
-                        }
-                    }
+        // ===== Session Messages =====
+        function checkSessionMessages() {
+            const msg = "${message}";
+            if (msg && msg.trim() !== '' && msg !== 'null') showToast(msg, 'success');
+            const err = "${error}";
+            if (err && err.trim() !== '' && err !== 'null') showToast(err, 'error');
+        }
 
-                    function stopMediaStream() {
-                        const videoElement = document.getElementById('webcamFeed');
-                        if (mediaStream) {
-                            mediaStream.getTracks().forEach(track => track.stop());
-                            mediaStream = null;
-                        }
-                        videoElement.srcObject = null;
-                        videoElement.classList.remove('active');
-                    }
+        // ===== Utilities =====
+        function parseDate(d) {
+            if (!d) return null;
+            if (d instanceof Date) return d;
+            if (Array.isArray(d)) return new Date(d[0], (d[1] || 1) - 1, d[2] || 1, d[3] || 0, d[4] || 0);
+            return new Date(d);
+        }
+        function formatDate(d) { return d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; }
+        function formatDateTime(d) {
+            const date = parseDate(d);
+            if (!date || isNaN(date.getTime())) return '';
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        }
+        function stringToColor(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            const h = hash % 360;
+            return 'hsl(' + (h < 0 ? h + 360 : h) + ', 65%, 55%)';
+        }
+        function escapeHtml(s) { return s ? String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : ''; }
+        function truncate(s, l) { return (!s || s.length <= l) ? (s || '') : s.substring(0, l) + '...'; }
+        function showToast(msg, type) {
+            if (typeof window.showToast === 'function') window.showToast(msg, type);
+            else alert(msg);
+        }
 
-                    async function toggleScreenShare() {
-                        const videoElement = document.getElementById('webcamFeed');
-                        const overlay = document.getElementById('screenShareOverlay');
-                        const shareBtn = document.getElementById('shareBtn');
-                        const placeholder = document.getElementById('videoPlaceholder');
+        document.addEventListener('DOMContentLoaded', init);
+    })();
+    </script>
+    </jsp:attribute>
 
-                        try {
-                            if (screenStream) {
-                                stopScreenShare();
-                                return;
-                            }
+    <jsp:body>
+    <!-- Server Data Injection -->
+    <script id="server-data" type="application/json">${realData != null && realData != '' ? realData : "{}"}</script>
+    <script>
+        try { window.serverData = JSON.parse(document.getElementById('server-data').textContent); }
+        catch (e) { window.serverData = {}; console.error('Parse error', e); }
+    </script>
 
-                            screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    <!-- Section: Overview -->
+    <section class="content-section active" id="section-overview">
+        <div class="section-header-row" style="margin-bottom:24px; border-radius:10px;">
+            <h2 class="section-title">Dashboard Overview</h2>
+        </div>
 
-                            // If webcam was on, pause it (or just switch view)
-                            // In meet, you usually see your screen. For this prototype, we replace the video feed.
+        <div class="stats-grid">
+            <div class="stat-card stat-purple">
+                <div class="stat-header">
+                    <span class="stat-title">Total Students</span>
+                    <div class="stat-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                    </div>
+                </div>
+                <span class="stat-value" id="statStudents">0</span>
+                <div class="stat-trend trend-neutral"><span class="trend-text" id="trendStudents">-</span></div>
+            </div>
 
-                            videoElement.srcObject = screenStream;
-                            videoElement.play();
-                            videoElement.classList.add('active');
-                            if (placeholder) placeholder.style.display = 'none'; // Ensure placeholder is gone
+            <div class="stat-card stat-yellow">
+                <div class="stat-header">
+                    <span class="stat-title">Assignments Created</span>
+                    <div class="stat-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    </div>
+                </div>
+                <span class="stat-value" id="statAssignments">0</span>
+                <div class="stat-trend trend-neutral"><span class="trend-text" id="trendAssignments">-</span></div>
+            </div>
 
-                            if (overlay) overlay.style.display = 'flex';
-                            shareBtn.classList.add('active'); // Use active class for 'on' state
+            <div class="stat-card stat-green">
+                <div class="stat-header">
+                    <span class="stat-title">Total Submissions</span>
+                    <div class="stat-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    </div>
+                </div>
+                <span class="stat-value" id="statSubmissions">0</span>
+                <div class="stat-trend trend-neutral"><span class="trend-text" id="trendSubmissions">-</span></div>
+            </div>
 
-                            // Handle system stop
-                            screenStream.getVideoTracks()[0].onended = () => {
-                                stopScreenShare();
-                            };
+            <div class="stat-card stat-orange">
+                <div class="stat-header">
+                    <span class="stat-title">Classes</span>
+                    <div class="stat-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                    </div>
+                </div>
+                <span class="stat-value" id="statClasses">0</span>
+                <div class="stat-trend trend-neutral"><span class="trend-text" id="trendClasses">-</span></div>
+            </div>
+        </div>
 
-                            showToast('You are presenting your screen', 'success');
+        <div class="section-block">
+            <div class="section-header-row">
+                <h2 class="section-title">Recent Submissions</h2>
+            </div>
+            <div class="card-container">
+                <div id="recentSubmissionsList" class="submission-list"></div>
+            </div>
+        </div>
 
-                        } catch (err) {
-                            console.error("Error sharing screen: ", err);
-                            showToast('Screen share cancelled.', 'error');
-                        }
-                    }
+        <div class="section-block">
+            <div class="section-header-row">
+                <h2 class="section-title">Needs Grading</h2>
+            </div>
+            <div class="card-container">
+                <div id="needsGradingList" class="submission-list"></div>
+            </div>
+        </div>
+    </section>
 
-                    function stopScreenShare() {
-                        const videoElement = document.getElementById('webcamFeed');
-                        const overlay = document.getElementById('screenShareOverlay');
-                        const shareBtn = document.getElementById('shareBtn');
+    <!-- Section: Assignments -->
+    <section class="content-section" id="section-assignments">
+        <div class="section-header-row" style="margin-bottom:24px; border-radius:10px;">
+            <h2 class="section-title">My Assignments</h2>
+            <button class="btn btn-primary" onclick="openCreateModal()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New Assignment
+            </button>
+        </div>
+        <div id="assignmentsList" class="assignment-list"></div>
+    </section>
 
-                        if (screenStream) {
-                            screenStream.getTracks().forEach(track => track.stop());
-                            screenStream = null;
-                        }
+    <!-- Section: Submissions -->
+    <section class="content-section" id="section-submissions">
+        <div class="section-header-row" style="margin-bottom:24px; border-radius:10px;">
+            <h2 class="section-title">All Submissions</h2>
+            <select id="submissionFilter" class="filter-select">
+                <option value="all">All</option>
+                <option value="pending">Needs Grading</option>
+                <option value="graded">Graded</option>
+            </select>
+        </div>
+        <div id="allSubmissionsList" class="submission-list"></div>
+    </section>
 
-                        if (overlay) overlay.style.display = 'none';
-                        shareBtn.classList.remove('active');
+    <!-- Section: Roster -->
+    <section class="content-section" id="section-roster">
+        <div class="section-header-row" style="margin-bottom:24px; border-radius:10px;">
+            <h2 class="section-title">Class Roster</h2>
+        </div>
+        <div id="studentsList" class="assignment-list"></div>
+    </section>
 
-                        // Restore webcam if it was active
-                        // Restore webcam if it was active
-                        if (mediaStream) {
-                            videoElement.srcObject = mediaStream;
-                            videoElement.play();
-                            videoElement.classList.add('active');
-                        } else {
-                            videoElement.srcObject = null;
-                            videoElement.classList.remove('active');
-                            if (document.getElementById('videoPlaceholder')) {
-                                document.getElementById('videoPlaceholder').style.display = 'flex';
-                            }
-                        }
+    <!-- Section: Classes -->
+    <section class="content-section" id="section-classes">
+        <div class="section-header-row" style="margin-bottom:24px; border-radius:10px;">
+            <h2 class="section-title">My Classes</h2>
+        </div>
+        <div id="classesList" class="classes-grid"></div>
+    </section>
 
-                        showToast('Stopped presenting', 'info');
-                    }
+    <!-- Create Assignment Modal -->
+    <div class="modal-overlay" id="createAssignmentModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Create New Assignment</h2>
+                <button class="modal-close" type="button" onclick="closeModal('createAssignmentModal')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <form id="createAssignmentForm" action="${pageContext.request.contextPath}/teacher/dashboard" method="POST">
+                <input type="hidden" name="action" value="createAssignment">
+                <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" name="title" required placeholder="E.g., Chapter 1 Quiz">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea name="description" rows="3" required placeholder="Instructions for the assignment..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Select Class</label>
+                    <select name="className" id="assignmentClass" required></select>
+                </div>
+                <div style="display:flex; gap:16px;">
+                    <div class="form-group" style="flex:1;">
+                        <label>Points</label>
+                        <input type="number" name="points" value="100" required min="0">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Deadline</label>
+                        <input type="datetime-local" name="deadline">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Google Form URL (Optional)</label>
+                    <input type="url" name="googleFormUrl" placeholder="https://docs.google.com/forms/...">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('createAssignmentModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Assignment</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
-                    function toggleMic() {
-                        const btn = document.getElementById('micBtn');
-                        if (mediaStream) {
-                            const audioTrack = mediaStream.getAudioTracks()[0];
-                            if (audioTrack) {
-                                isMicOn = !isMicOn;
-                                audioTrack.enabled = isMicOn;
-                                btn.classList.toggle('active', !isMicOn); // Red if off
-                                btn.innerHTML = isMicOn ? '🎤' : '🔇';
-                                showToast(`Microphone \${isMicOn ? 'on' : 'off'}`, 'info');
-                            }
-                        } else {
-                            showToast('Join the call first to use microphone', 'warning');
-                        }
-                    }
-
-                    function toggleCam() {
-                        const btn = document.getElementById('camBtn');
-                        const videoElement = document.getElementById('webcamFeed');
-                        const placeholder = document.getElementById('videoPlaceholder');
-
-                        if (mediaStream) {
-                            const videoTrack = mediaStream.getVideoTracks()[0];
-                            if (videoTrack) {
-                                isCamOn = !isCamOn;
-                                videoTrack.enabled = isCamOn;
-                                btn.classList.toggle('active', !isCamOn); // Red if off
-                                btn.innerHTML = isCamOn ? '📹' : '📷'; // Change icon? 
-
-                                // Visual feedback for local user
-                                videoElement.style.opacity = isCamOn ? '1' : '0';
-                                // If cam is off, maybe show avatar in placeholder? 
-                                // For now, simple opacity toggle.
-
-                                showToast(`Camera \${isCamOn ? 'on' : 'off'}`, 'info');
-                            }
-                        } else {
-                            // If not in call, maybe this starts the call?
-                            showToast('Join the call first to use camera', 'warning');
-                        }
-                    }
-
-                    // ==========================================
-                    // DETAILED VIEWS LOGIC
-                    // ==========================================
-
-                    function handleFileUpload(input) {
-                        const text = document.getElementById('uploadText');
-                        if (input.files && input.files[0]) {
-                            text.textContent = `📄 \${input.files[0].name}`;
-                            text.style.color = '#3b82f6';
-                            text.style.fontWeight = '500';
-                        }
-                    }
-
-                    function openCourseDetail(courseId) {
-                        showToast('Detailed course curriculum management coming soon.', 'info');
-                    }
-
-                    function openAssignmentDetail(title) {
-                        document.getElementById('adTitle').textContent = title;
-
-                        const tbody = document.getElementById('adBody');
-                        tbody.innerHTML = '';
-
-                        // Real Submissions filtered by assignment title
-                        const submissions = (window.serverData.recentSubmissions || []).filter(sub => sub.assignment.title === title);
-
-                        if (submissions.length === 0) {
-                            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted);">No submissions yet.</td></tr>';
-                        } else {
-                            submissions.forEach(sub => {
-                                const statusClass = sub.grade != null ? 'badge-success' : 'badge-warning';
-                                const statusText = sub.grade != null ? 'Graded' : 'Submitted';
-                                tbody.innerHTML += `
-                                    <tr>
-                                        <td>\${sub.student.name}</td>
-                                        <td><span class="badge \${statusClass}">\${statusText}</span></td>
-                                        <td><a href="\${sub.fileUrl || '#'}" style="color: #3b82f6;">\${sub.fileUrl ? 'View File' : 'Text Content'}</a></td>
-                                        <td>
-                                             \${sub.grade === null ? `< button class="btn-sm btn-primary" onclick = "showGradePopup('\${sub.id}', '\${sub.assignment.points}', '\${sub.student.name}')" > Grade</button > ` : sub.grade + '/' + sub.assignment.points}
-                                        </td>
-                                    </tr>
-                                `;
-                            });
-                        }
-
-                        navigateTo(null, 'assignment-detail');
-                    }
-
-                    function showGradePopup(submissionId, maxPoints, studentName) {
-                        document.getElementById('gradeSubmissionId').value = submissionId;
-                        document.getElementById('gradeMaxPoints').textContent = maxPoints;
-                        document.getElementById('gradeStudentName').value = studentName;
-                        document.getElementById('gradeValue').max = maxPoints;
-                        document.getElementById('gradeValue').value = '';
-                        document.getElementById('gradeModal').classList.add('active');
-                    }
-
-                    function closeGradeModal() {
-                        document.getElementById('gradeModal').classList.remove('active');
-                    }
-
-                    function submitGrade(event) {
-                        event.preventDefault();
-                        const submissionId = document.getElementById('gradeSubmissionId').value;
-                        const grade = document.getElementById('gradeValue').value;
-
-                        fetch('${pageContext.request.contextPath}/teacher/grade', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body: `submissionId=\${submissionId}&grade=\${grade}`
-                        })
-                            .then(res => res.json())
-                            .then(res => {
-                                if (res.success) {
-                                    showToast(res.message, 'success');
-                                    closeGradeModal();
-                                    // Refresh current detail view
-                                    const currentTitle = document.getElementById('adTitle').textContent;
-                                    openAssignmentDetail(currentTitle);
-                                } else {
-                                    showToast(res.message || 'Failed to publish grade', 'error');
-                                }
-                            })
-                            .catch(err => {
-                                showToast('Error publishing grade', 'error');
-                                console.error(err);
-                            });
-                    }
-                </script>
-                <script src="${pageContext.request.contextPath}/js/toast.js"></script>
-                <script>
-                    document.addEventListener('DOMContentLoaded', function () {
-                        const errorMsg = "${error}";
-                        if (errorMsg && errorMsg.trim() !== "" && errorMsg !== "null") {
-                            showMessage('error', errorMsg);
-                        }
-                        const successMsg = "${success}";
-                        if (successMsg && successMsg.trim() !== "" && successMsg !== "null") {
-                            showMessage('success', successMsg);
-                        }
-                    });
-                </script>
-                <script>
-                    // Real-Time WebSocket Connection
-                    (function () {
-                        let ws;
-                        function connectWebSocket() {
-                            const userId = '${teacher.id}';
-                            if (!userId) return;
-
-                            const host = window.location.host;
-                            const ctx = '${pageContext.request.contextPath}';
-                            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                            const wsUrl = protocol + '//' + host + ctx + '/ws/assignments/' + userId;
-
-                            ws = new WebSocket(wsUrl);
-
-                            ws.onopen = function () {
-                                console.log("Connected to real-time notification service (Teacher)");
-                            };
-
-                            ws.onmessage = function (event) {
-                                try {
-                                    const data = JSON.parse(event.data);
-                                    if (data.type === 'NEW_SUBMISSION') {
-                                        showMessage('success', `New submission from \${data.studentName} for: \${data.assignmentTitle}`);
-
-                                        // Update stats slightly if requested
-                                        // If they are on the assignment page, we could refresh it dynamically
-                                        // In a real scenario you would update the DOM elements for that specific assignment's submissions count
-                                    }
-                                } catch (e) {
-                                    console.error("Error parsing websocket message", e);
-                                }
-                            };
-
-                            ws.onclose = function () {
-                                setTimeout(connectWebSocket, 5000);
-                            };
-                        }
-
-                        document.addEventListener("DOMContentLoaded", connectWebSocket);
-                    })();
-                </script>
-            </body>
-
-            </html>
+    <!-- Grading Modal -->
+    <div class="modal-overlay" id="gradeModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Grade Submission</h2>
+                <button class="modal-close" type="button" onclick="closeModal('gradeModal')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <form id="gradeForm">
+                <input type="hidden" name="submissionId" id="gradeSubmissionId">
+                <div class="form-group">
+                    <label>Student</label>
+                    <div style="font-size:14px; font-weight:600; padding:8px 0;" id="gradeStudentName"></div>
+                </div>
+                <div class="form-group">
+                    <label>Assignment</label>
+                    <div style="font-size:14px; font-weight:600; padding:8px 0;" id="gradeAssignmentTitle"></div>
+                </div>
+                <div class="form-group">
+                    <a id="gradeFileLink" href="#" target="_blank" class="btn btn-outline btn-sm" style="display:none;">View Submission File</a>
+                </div>
+                <div class="form-group">
+                    <label>Grade (Points)</label>
+                    <input type="number" name="grade" id="gradeInput" required min="0" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label>Feedback / Comments</label>
+                    <textarea name="feedback" id="feedbackInput" rows="4" placeholder="Great job on..."></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('gradeModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Publish Grade</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    </jsp:body>
+</t:layout>

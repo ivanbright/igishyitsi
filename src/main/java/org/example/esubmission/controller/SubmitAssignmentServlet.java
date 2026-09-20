@@ -10,8 +10,12 @@ import jakarta.servlet.http.Part;
 import org.example.esubmission.dao.AssignmentDAO;
 import org.example.esubmission.dao.SubmissionDAO;
 import org.example.esubmission.model.Assignment;
+import org.example.esubmission.service.NotificationService;
 import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
+import org.example.esubmission.dao.StudentClassDAO;
+import org.example.esubmission.model.StudentClass;
+import java.util.List;
 
 import java.io.File;
 import java.io.IOException;
@@ -37,6 +41,8 @@ public class SubmitAssignmentServlet extends HttpServlet {
     
     private AssignmentDAO assignmentDAO;
     private SubmissionDAO submissionDAO;
+    private NotificationService notificationService;
+    private StudentClassDAO studentClassDAO;
     private static final String UPLOAD_DIR = "uploads";
 
     /**
@@ -48,6 +54,8 @@ public class SubmitAssignmentServlet extends HttpServlet {
     public void init() throws ServletException {
         this.assignmentDAO = new AssignmentDAO();
         this.submissionDAO = new SubmissionDAO();
+        this.notificationService = new NotificationService();
+        this.studentClassDAO = new StudentClassDAO();
         
         // Create upload directory if it doesn't exist
         String applicationPath = getServletContext().getRealPath("");
@@ -93,14 +101,26 @@ public class SubmitAssignmentServlet extends HttpServlet {
                 return;
             }
 
-            // Check if student has already submitted
-            Submission existingSubmission = submissionDAO.findByStudentAndAssignment(student.getId(), assignmentId);
-            if (existingSubmission != null) {
-                request.setAttribute("submission", existingSubmission);
+            // Check if student is enrolled in the class
+            boolean isEnrolled = false;
+            List<StudentClass> studentClasses = studentClassDAO.findStudentClassesByStudent(student.getId());
+            for (StudentClass sc : studentClasses) {
+                if (sc.getClassName().equals(assignment.getClassName())) {
+                    isEnrolled = true;
+                    break;
+                }
+            }
+            if (!isEnrolled) {
+                response.sendError(403, "You are not enrolled in the class for this assignment.");
+                return;
             }
 
-            request.setAttribute("assignment", assignment);
-            request.getRequestDispatcher("/submitAssignment.jsp").forward(request, response);
+            // Check if student is over-submitting an already graded submission
+            Submission existingSubmission = submissionDAO.findByStudentAndAssignment(student.getId(), assignmentId);
+            boolean gradedException = existingSubmission != null && existingSubmission.getGrade() != null;
+
+            response.sendRedirect(request.getContextPath() + "/studentDash?submit=" + assignmentId
+                    + (gradedException ? "&error=graded" : ""));
             
         } catch (NumberFormatException e) {
             response.sendError(400, "Invalid assignment ID");
@@ -152,18 +172,35 @@ public class SubmitAssignmentServlet extends HttpServlet {
                 return;
             }
 
+            // Check if student is enrolled in the class
+            boolean isEnrolled = false;
+            List<StudentClass> studentClasses = studentClassDAO.findStudentClassesByStudent(student.getId());
+            for (StudentClass sc : studentClasses) {
+                if (sc.getClassName().equals(assignment.getClassName())) {
+                    isEnrolled = true;
+                    break;
+                }
+            }
+            if (!isEnrolled) {
+                response.sendError(403, "You are not enrolled in the class for this assignment.");
+                return;
+            }
+
             // Check if already submitted
-            Submission existingSubmission = submissionDAO.findByStudentAndAssignment(student.getId(), assignmentId);
-            if (existingSubmission != null) {
-                request.setAttribute("error", "You have already submitted this assignment");
-                request.setAttribute("assignment", assignment);
-                request.setAttribute("submission", existingSubmission);
-                request.getRequestDispatcher("/submitAssignment.jsp").forward(request, response);
+            Submission submission = submissionDAO.findByStudentAndAssignment(student.getId(), assignmentId);
+            boolean isResubmission = (submission != null);
+            
+            if (submission == null) {
+                submission = new Submission();
+            } else if (submission.getGrade() != null) {
+                // Already graded, reject resubmission
+                session.setAttribute("error", "Cannot resubmit: Your assignment has already been graded.");
+                response.sendRedirect(request.getContextPath() + "/studentDash");
                 return;
             }
 
             // Handle file upload
-            String fileUrl = null;
+            String fileUrl = submission.getFileUrl(); // Keep old file by default
             if (filePart != null && filePart.getSize() > 0) {
                 String fileName = extractFileName(filePart);
                 if (fileName != null && !fileName.isEmpty()) {
@@ -174,8 +211,7 @@ public class SubmitAssignmentServlet extends HttpServlet {
             // Optional: Google Form response URL  
             String formResponseUrl = request.getParameter("formResponseUrl");
 
-            // Create submission
-            Submission submission = new Submission();
+            // Update submission
             submission.setAssignment(assignment);
             submission.setStudent(student);
             submission.setContent(content);
@@ -184,17 +220,42 @@ public class SubmitAssignmentServlet extends HttpServlet {
                 submission.setFormResponseUrl(formResponseUrl.trim());
             }
 
+            // Detect late submission
+            if (assignment.getDeadline() != null && java.time.LocalDateTime.now().isAfter(assignment.getDeadline())) {
+                submission.setStatus("LATE");
+            } else {
+                submission.setStatus("ON_TIME");
+            }
+
+            // Save submission (create or update)
             submissionDAO.save(submission);
 
+            // Notify the teacher
+            try {
+                if (isResubmission) {
+                    notificationService.notifyNewSubmission(
+                        assignment.getTeacher(), student.getName(),
+                        assignment.getTitle() + " (Resubmission)", assignment.getId());
+                } else {
+                    notificationService.notifyNewSubmission(
+                        assignment.getTeacher(), student.getName(),
+                        assignment.getTitle(), assignment.getId());
+                }
+            } catch (Exception ne) {
+                System.err.println("Failed to send submission notification: " + ne.getMessage());
+            }
+
             // Broadcast new submission to the teacher
+            String titleText = assignment.getTitle().replace("\"", "\\\"");
+            if (isResubmission) titleText += " (Resubmission)";
             String jsonMessage = String.format("{\"type\":\"NEW_SUBMISSION\", \"studentName\":\"%s\", \"assignmentTitle\":\"%s\"}",
                 student.getName().replace("\"", "\\\""),
-                assignment.getTitle().replace("\"", "\\\"")
+                titleText
             );
             org.example.esubmission.websocket.AssignmentWebSocket.broadcastToUser(assignment.getTeacher().getId(), jsonMessage);
 
             // Redirect to dashboard with success message
-            session.setAttribute("message", "Assignment submitted successfully!");
+            session.setAttribute("message", isResubmission ? "Assignment resubmitted successfully!" : "Assignment submitted successfully!");
             response.sendRedirect(request.getContextPath() + "/studentDash");
 
         } catch (NumberFormatException e) {
@@ -220,8 +281,12 @@ public class SubmitAssignmentServlet extends HttpServlet {
         String applicationPath = getServletContext().getRealPath("");
         String uploadFilePath = applicationPath + File.separator + UPLOAD_DIR;
         
+        // Sanitize filename: remove path separators and dangerous chars
+        String safeName = fileName.replaceAll("[^a-zA-Z0-9._-]", "_");
+        if (safeName.isEmpty()) safeName = "upload";
+        
         // Create unique filename to avoid conflicts
-        String uniqueFileName = System.currentTimeMillis() + "_" + fileName;
+        String uniqueFileName = System.currentTimeMillis() + "_" + safeName;
         Path filePath = Paths.get(uploadFilePath, uniqueFileName);
         
         try (InputStream input = filePart.getInputStream()) {

@@ -127,4 +127,86 @@ public class StudentClassDAO {
                     .list();
         }
     }
+
+    /**
+     * Retrieves all enrollment records for a class name (any teacher).
+     *
+     * @param className the name of the class
+     * @return a list of StudentClass records ordered by student name
+     */
+    public List<StudentClass> findEnrollmentsByClassName(String className) {
+        try (Session session = HibernateUtil.getSessionFactory().openSession()) {
+            return session.createQuery("FROM StudentClass sc WHERE sc.className = :className ORDER BY sc.student.name", StudentClass.class)
+                    .setParameter("className", className)
+                    .list();
+        }
+    }
+
+    /**
+     * Retrieves the distinct teachers who have students enrolled in a class.
+     *
+     * @param className the name of the class
+     * @return a list of teachers ordered by name
+     */
+    public List<User> findTeachersByClass(String className) {
+        try (Session session = HibernateUtil.getSessionFactory().openSession()) {
+            return session.createQuery(
+                    "SELECT DISTINCT sc.teacher FROM StudentClass sc WHERE sc.className = :className ORDER BY sc.teacher.name", User.class)
+                    .setParameter("className", className)
+                    .list();
+        }
+    }
+
+    /**
+     * Retrieves a single enrollment record for a student in a class.
+     *
+     * @param studentId the ID of the student
+     * @param className the name of the class
+     * @return the enrollment record or {@code null}
+     */
+    public StudentClass findEnrollment(Long studentId, String className) {
+        try (Session session = HibernateUtil.getSessionFactory().openSession()) {
+            return session.createQuery(
+                    "FROM StudentClass sc WHERE sc.student.id = :studentId AND sc.className = :className", StudentClass.class)
+                    .setParameter("studentId", studentId)
+                    .setParameter("className", className)
+                    .uniqueResult();
+        }
+    }
+
+    /**
+     * Removes a student's enrollment in a class (all teacher rows).
+     *
+     * @param studentId the ID of the student
+     * @param className the name of the class
+     */
+    public void removeByStudentAndClass(Long studentId, String className) {
+        Transaction tx = null;
+        try (Session session = HibernateUtil.getSessionFactory().openSession()) {
+            tx = session.beginTransaction();
+            session.createQuery("DELETE FROM StudentClass sc WHERE sc.student.id = :studentId AND sc.className = :className")
+                    .setParameter("studentId", studentId)
+                    .setParameter("className", className)
+                    .executeUpdate();
+            tx.commit();
+        } catch (Exception e) {
+            if (tx != null) tx.rollback();
+            throw new RuntimeException("Failed to remove student enrollment", e);
+        }
+    }
+
+    /**
+     * Counts the distinct students enrolled in a class (any teacher).
+     *
+     * @param className the name of the class
+     * @return the number of distinct students
+     */
+    public Long countStudentsByClassName(String className) {
+        try (Session session = HibernateUtil.getSessionFactory().openSession()) {
+            return session.createQuery(
+                    "SELECT COUNT(DISTINCT sc.student.id) FROM StudentClass sc WHERE sc.className = :className", Long.class)
+                    .setParameter("className", className)
+                    .uniqueResult();
+        }
+    }
 }

@@ -91,6 +91,21 @@ public class UserService {
      * @throws IllegalArgumentException if a user with the same email already exists
      */
     public User createUser(String name, String email, String phone, String password) {
+        return createUser(name, email, phone, password, org.example.esubmission.util.UserRole.STUDENT);
+    }
+
+    /**
+     * Creates and persists a new user account with a specific role.
+     *
+     * @param name     the full name of the user
+     * @param email    the email address
+     * @param phone    the phone number
+     * @param password the plain-text password to hash and store
+     * @param role     the user role
+     * @return the created user
+     * @throws IllegalArgumentException if a user with the same email already exists
+     */
+    public User createUser(String name, String email, String phone, String password, org.example.esubmission.util.UserRole role) {
         User userExists = userDAO.findByEmail(email);
 
         if (userExists != null) {
@@ -102,6 +117,7 @@ public class UserService {
         newUser.setPassword(PasswordUtils.hashPassword(password));
         newUser.setPhone(phone);
         newUser.setEmail(email);
+        newUser.setRole(role);
 
         return userDAO.save(newUser);
     }
@@ -179,7 +195,7 @@ public class UserService {
      */
     public String initiatePasswordReset(String email) {
         User user = getUserByEmail(email);
-        String token = java.util.UUID.randomUUID().toString();
+        String token = SecurityUtil.generateVerificationCode();
         user.setResetToken(token);
         user.setResetTokenExpiry(LocalDateTime.now().plusHours(1));
         userDAO.save(user);

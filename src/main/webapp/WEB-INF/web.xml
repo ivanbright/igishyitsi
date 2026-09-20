@@ -41,8 +41,10 @@
         <url-pattern>/submitAssignment</url-pattern>
         <url-pattern>/submissionDetails</url-pattern>
         <url-pattern>/api/student/*</url-pattern>
+        <url-pattern>/api/notifications/*</url-pattern>
+        <url-pattern>/api/admin/*</url-pattern>
     </filter-mapping>
-
+    
     <!-- Role Authorization Filter - checks if user has correct role for the resource -->
     <filter>
         <filter-name>RoleAuthorizationFilter</filter-name>
@@ -59,6 +61,9 @@
         <url-pattern>/profile</url-pattern>
         <url-pattern>/submitAssignment</url-pattern>
         <url-pattern>/submissionDetails</url-pattern>
+        <url-pattern>/api/student/*</url-pattern>
+        <url-pattern>/api/notifications/*</url-pattern>
+        <url-pattern>/api/admin/*</url-pattern>
     </filter-mapping>
     
     <servlet>
@@ -86,6 +91,15 @@
     <servlet-mapping>
         <servlet-name>ResetPasswordServlet</servlet-name>
         <url-pattern>/resetPassword</url-pattern>
+    </servlet-mapping>
+    
+    <servlet>
+        <servlet-name>VerifyResetOtpServlet</servlet-name>
+        <servlet-class>org.example.esubmission.controller.VerifyResetOtpServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>VerifyResetOtpServlet</servlet-name>
+        <url-pattern>/verifyReset</url-pattern>
     </servlet-mapping>
     
     <servlet>
@@ -277,4 +291,14 @@
     </welcome-file-list>
 
     <!-- Error Pages -->
+    <!-- Notification API -->
+    <servlet>
+        <servlet-name>NotificationApiServlet</servlet-name>
+        <servlet-class>org.example.esubmission.controller.NotificationApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>NotificationApiServlet</servlet-name>
+        <url-pattern>/api/notifications/*</url-pattern>
+    </servlet-mapping>
+
 </web-app>

@@ -1,1027 +1,646 @@
-<%@ page contentType="text/html; charset=UTF-8" language="java" %>
-    <%@ taglib prefix="c" uri="jakarta.tags.core" %>
-        <%@ taglib prefix="fmt" uri="jakarta.tags.fmt" %>
-            <!DOCTYPE html>
-            <html lang="en">
+﻿<%@ page contentType="text/html; charset=UTF-8" language="java" %>
+<%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="t" tagdir="/WEB-INF/tags" %>
+<c:set var="activeSection" value="${param.section != null ? param.section : 'overview'}"/>
 
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Student Dashboard - Igishyitsi</title>
-                <link rel="preconnect" href="https://fonts.googleapis.com">
-                <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
-                    rel="stylesheet">
-                <link rel="stylesheet" href="./studentDash.css">
-                <link rel="stylesheet"
-                    href="${pageContext.request.contextPath}/css/studentDash.css?v=${pageContext.session.creationTime}">
-                <link rel="stylesheet" href="${pageContext.request.contextPath}/css/toast.css">
-            </head>
+<t:layout role="STUDENT" pageTitle="Student Dashboard" activeSection="${activeSection}">
+    <jsp:attribute name="extraScripts">
+    <script>
+    (function() {
+        'use strict';
 
-            <body>
-                <script id="server-data" type="application/json">
-                    ${realData != null && realData != '' ? realData : "{}"}
-                </script>
-                <script>
-                    try {
-                        window.serverData = JSON.parse(document.getElementById('server-data').textContent);
-                    } catch (e) {
-                        window.serverData = {};
-                        console.error("Failed to parse serverData", e);
-                    }
-                    console.log("Student Server Data Loaded:", window.serverData);
-                </script>
-                <!-- Toast Container -->
-                <div id="toastContainer" class="toast-container"></div>
+        let serverData = {};
+        try {
+            serverData = JSON.parse(document.getElementById('server-data').textContent);
+        } catch (e) {
+            serverData = window.serverData || {};
+            console.error('Failed to parse serverData', e);
+        }
 
-                <!-- Course Details Overlay -->
-                <div id="courseDetailsOverlay" class="overlay" style="display: none;">
-                    <div class="overlay-content">
-                        <div class="overlay-header">
-                            <h2 id="courseDetailsTitle">Course Details</h2>
-                            <button class="close-btn" onclick="closeOverlay('courseDetailsOverlay')">×</button>
-                        </div>
-                        <div class="overlay-body">
-                            <div class="course-details-container">
-                                <div class="course-info-section">
-                                    <div class="course-avatar-large" id="courseDetailsAvatar"></div>
-                                    <h3 id="courseDetailsName"></h3>
-                                    <p id="courseDetailsInstructor"></p>
-                                    <div class="course-stats">
-                                        <div class="stat-item">
-                                            <span class="stat-label">Progress</span>
-                                            <span class="stat-value" id="courseDetailsProgress"></span>
-                                        </div>
-                                        <div class="stat-item">
-                                            <span class="stat-label">Grade</span>
-                                            <span class="stat-value" id="courseDetailsGrade"></span>
-                                        </div>
-                                        <div class="stat-item">
-                                            <span class="stat-label">Rating</span>
-                                            <span class="stat-value" id="courseDetailsRating"></span>
-                                        </div>
-                                    </div>
-                                </div>
+        const user = serverData.currentUser || {};
+        const assignments = serverData.assignments || [];
+        const submissions = serverData.recentSubmissions || [];
+        const enrolledClasses = serverData.enrolledClasses || [];
+        const stats = serverData.stats || {};
+        const contextPath = '${pageContext.request.contextPath}';
+        const submittedIds = new Set(submissions.map(s => (s.assignment ? s.assignment.id : s.assignmentId)));
 
-                                <div class="course-sections">
-                                    <div class="section-tabs">
-                                        <button class="tab-btn active" onclick="switchTab('modules')">Modules</button>
-                                        <button class="tab-btn" onclick="switchTab('assignments')">Assignments</button>
-                                        <button class="tab-btn" onclick="switchTab('resources')">Resources</button>
-                                        <button class="tab-btn" onclick="switchTab('grades')">Grades</button>
-                                    </div>
+        function init() {
+            renderStats();
+            renderDueSoon();
+            renderRecentSubmissions();
+            renderAssignments();
+            renderSubmissions();
+            renderGrades();
+            renderClasses();
+            populateClassFilter();
+            setupNavigation();
+            setupFileUpload();
+            checkDeepLink();
+            checkSessionMessages();
+        }
 
-                                    <div id="modulesTab" class="tab-content active">
-                                        <h4>Course Modules</h4>
-                                        <div id="courseModulesList"></div>
-                                    </div>
+        // ===== Stats =====
+        function renderStats() {
+            const totalAssignments = assignments.length;
+            const submittedCount = submittedIds.size;
+            const pendingCount = Math.max(0, totalAssignments - submittedCount);
+            const overdueCount = assignments.filter(a => {
+                if (submittedIds.has(a.id)) return false;
+                const deadline = parseDate(a.deadline);
+                return deadline && deadline < new Date();
+            }).length;
 
-                                    <div id="assignmentsTab" class="tab-content">
-                                        <h4>Course Assignments</h4>
-                                        <div id="courseAssignmentsList"></div>
-                                    </div>
+            document.getElementById('statCourses').textContent = enrolledClasses.length;
+            document.getElementById('statTotal').textContent = totalAssignments;
+            document.getElementById('statSubmitted').textContent = submittedCount;
+            document.getElementById('statPending').textContent = pendingCount;
 
-                                    <div id="resourcesTab" class="tab-content">
-                                        <h4>Course Resources</h4>
-                                        <div class="resources-list">
-                                            <div class="resource-item">
-                                                <span class="resource-icon">📄</span>
-                                                <span class="resource-name">Course Syllabus</span>
-                                                <button class="download-btn">Download</button>
-                                            </div>
-                                            <div class="resource-item">
-                                                <span class="resource-icon">📹</span>
-                                                <span class="resource-name">Video Lectures</span>
-                                                <button class="download-btn">Access</button>
-                                            </div>
-                                            <div class="resource-item">
-                                                <span class="resource-icon">📚</span>
-                                                <span class="resource-name">Reading Materials</span>
-                                                <button class="download-btn">View</button>
-                                            </div>
-                                        </div>
-                                    </div>
+            document.getElementById('trendCourses').textContent = enrolledClasses.length + ' enrolled';
+            document.getElementById('trendAssignments').textContent = pendingCount + ' not submitted';
+            document.getElementById('trendSubmitted').textContent = (totalAssignments - submittedCount) + ' remaining';
+            document.getElementById('trendPending').textContent = overdueCount + ' overdue';
+        }
 
-                                    <div id="gradesTab" class="tab-content">
-                                        <h4>Course Grades</h4>
-                                        <div id="courseGradesList"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+        // ===== Due Soon =====
+        function renderDueSoon() {
+            const container = document.getElementById('dueSoonList');
+            const now = new Date();
+            const threeDays = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+            const overdue = assignments.filter(a => {
+                if (submittedIds.has(a.id)) return false;
+                const deadline = parseDate(a.deadline);
+                return deadline && deadline < now;
+            });
+            const dueSoon = assignments.filter(a => {
+                if (submittedIds.has(a.id)) return false;
+                const deadline = parseDate(a.deadline);
+                return deadline && deadline > now && deadline <= threeDays;
+            }).sort((a, b) => parseDate(a.deadline) - parseDate(b.deadline));
+
+            if (dueSoon.length === 0 && overdue.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>All caught up! No assignments due soon.</p></div>';
+                return;
+            }
+
+            let html = '';
+            overdue.forEach(a => html += renderAssignmentCard(a, 'overdue'));
+            dueSoon.forEach(a => html += renderAssignmentCard(a, 'due-soon'));
+            container.innerHTML = html;
+        }
+
+        // ===== Assignments =====
+        function renderAssignments() {
+            const container = document.getElementById('assignmentsList');
+            if (assignments.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No assignments yet. Check back later!</p></div>';
+                return;
+            }
+            let html = '';
+            assignments.forEach(a => html += renderAssignmentCard(a, getAssignmentStatus(a)));
+            container.innerHTML = html;
+        }
+
+        function renderAssignmentCard(a, statusOverride) {
+            const deadline = parseDate(a.deadline);
+            const now = new Date();
+            const status = statusOverride || getAssignmentStatus(a);
+            const isSubmitted = submittedIds.has(a.id);
+            const timeLeft = deadline ? getTimeRemaining(deadline) : '';
+            const sub = submissions.find(s => (s.assignment ? s.assignment.id : s.assignmentId) === a.id);
+            const finalStatus = (sub && sub.grade != null) ? 'graded' : status;
+
+            const statusLabels = {
+                'submitted': '<span class="badge badge-green">Submitted</span>',
+                'overdue': '<span class="badge badge-red">Overdue</span>',
+                'due-soon': '<span class="badge badge-amber">Due Soon</span>',
+                'pending': '<span class="badge badge-blue">Pending</span>',
+                'graded': '<span class="badge badge-purple">Graded</span>'
+            };
+
+            let action = '';
+            if (!isSubmitted && deadline && deadline > now) {
+                action = '<button class="btn btn-primary btn-sm" onclick="openSubmitModal(' + a.id + ')">Submit</button>';
+            } else if (sub && sub.grade != null) {
+                action = '<span class="grade-display">' + sub.grade + '/' + (a.points || 100) + '</span>';
+            } else if (isSubmitted) {
+                action = '<span class="submitted-check">&#10003; Submitted</span>';
+            } else {
+                action = '<span class="badge badge-red">Overdue</span>';
+            }
+
+            return '<div class="assignment-card" data-class="' + escapeHtml(a.className || '') + '" data-status="' + finalStatus + '">' +
+                '<div class="assignment-meta">' +
+                    '<span class="assignment-class">' + escapeHtml(a.className || 'Unknown Class') + '</span>' +
+                    (statusLabels[finalStatus] || '') +
+                '</div>' +
+                '<h3 class="assignment-title">' + escapeHtml(a.title || '') + '</h3>' +
+                '<p class="assignment-desc">' + escapeHtml(truncate(a.description || '', 120)) + '</p>' +
+                '<div class="assignment-card-bottom">' +
+                    '<div class="assignment-info">' +
+                        '<span class="assignment-deadline"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ' + (deadline ? formatDate(deadline) : 'No deadline') + '</span>' +
+                        (a.points ? '<span class="assignment-points">' + a.points + ' pts</span>' : '') +
+                        (timeLeft && !isSubmitted ? '<span class="time-remaining">' + timeLeft + '</span>' : '') +
+                    '</div>' +
+                    (a.googleFormUrl && !isSubmitted ? '<a href="' + escapeHtml(a.googleFormUrl) + '" target="_blank" class="btn btn-outline btn-sm">Open Google Form</a>' : '') +
+                    action +
+                '</div>' +
+            '</div>';
+        }
+
+        // ===== Submissions =====
+        function renderSubmissions() {
+            const container = document.getElementById('submissionsList');
+            if (submissions.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>You haven\'t submitted any work yet.</p></div>';
+                return;
+            }
+
+            let html = '<div class="table-header"><span>Assignment</span><span>Class</span><span>Submitted</span><span>Status</span><span>Grade</span></div>';
+            submissions.forEach(s => {
+                const a = s.assignment || {};
+                const statusText = s.grade != null ? 'Graded' : (s.status || 'Submitted');
+                const statusClass = s.grade != null ? 'badge-purple' : (s.status === 'LATE' ? 'badge-amber' : 'badge-green');
+                html += '<div class="table-row">' +
+                    '<span class="cell-primary">' + escapeHtml(a.title || 'Assignment') + '</span>' +
+                    '<span>' + escapeHtml(a.className || '') + '</span>' +
+                    '<span>' + formatDateTime(s.submittedAt) + '</span>' +
+                    '<span><span class="badge ' + statusClass + '">' + statusText + '</span></span>' +
+                    '<span>' + (s.grade != null ? s.grade + '/' + (a.points || 100) : '&mdash;') + '</span>' +
+                '</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        function renderRecentSubmissions() {
+            const container = document.getElementById('recentSubmissionsList');
+            const recent = submissions.slice(0, 5);
+            if (recent.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No submissions yet.</p></div>';
+                return;
+            }
+            let html = '';
+            recent.forEach(s => {
+                const a = s.assignment || {};
+                html += '<div class="submission-item">' +
+                    '<div class="submission-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div>' +
+                    '<div class="submission-details">' +
+                        '<span class="submission-title">' + escapeHtml(a.title || 'Assignment') + '</span>' +
+                        '<span class="submission-meta">' + escapeHtml(a.className || '') + ' &middot; ' + formatDateTime(s.submittedAt) + '</span>' +
+                    '</div>' +
+                    '<div class="submission-grade">' +
+                        (s.grade != null ? '<span class="grade-display">' + s.grade + '/' + (a.points || 100) + '</span>' : '<span class="badge badge-blue">Pending</span>') +
+                    '</div>' +
+                '</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        // ===== Grades =====
+        function renderGrades() {
+            const graded = submissions.filter(s => s.grade != null);
+            const summaryEl = document.getElementById('gradesSummary');
+            const listEl = document.getElementById('gradesList');
+
+            if (graded.length === 0) {
+                summaryEl.innerHTML = '';
+                listEl.innerHTML = '<div class="empty-state"><p>No grades available yet. Submit your assignments to see grades here.</p></div>';
+                return;
+            }
+
+            const totalPoints = graded.reduce((sum, s) => sum + (s.grade || 0), 0);
+            const maxPoints = graded.reduce((sum, s) => sum + ((s.assignment ? s.assignment.points : null) || 100), 0);
+            const avg = maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 100) : 0;
+            const highest = Math.max.apply(null, graded.map(s => {
+                const mp = (s.assignment ? s.assignment.points : null) || 100;
+                return Math.round((s.grade / mp) * 100);
+            }));
+
+            summaryEl.innerHTML =
+                '<div class="grade-summary-card"><span class="grade-summary-value">' + avg + '%</span><span class="grade-summary-label">Overall Average</span></div>' +
+                '<div class="grade-summary-card"><span class="grade-summary-value">' + graded.length + '</span><span class="grade-summary-label">Graded Assignments</span></div>' +
+                '<div class="grade-summary-card"><span class="grade-summary-value">' + highest + '%</span><span class="grade-summary-label">Highest Score</span></div>';
+
+            let html = '';
+            graded.forEach(s => {
+                const a = s.assignment || {};
+                const pct = ((s.grade || 0) / ((a.points) || 100)) * 100;
+                const gradeClass = pct >= 80 ? 'grade-a' : pct >= 60 ? 'grade-b' : pct >= 40 ? 'grade-c' : 'grade-f';
+                html += '<div class="grade-card">' +
+                    '<div class="grade-card-info">' +
+                        '<h4>' + escapeHtml(a.title || '') + '</h4>' +
+                        '<span class="grade-class-name">' + escapeHtml(a.className || '') + '</span>' +
+                        (s.feedback ? '<p class="grade-feedback">' + escapeHtml(s.feedback) + '</p>' : '') +
+                    '</div>' +
+                    '<div class="grade-card-score ' + gradeClass + '">' +
+                        '<span class="score-value">' + s.grade + '/' + (a.points || 100) + '</span>' +
+                        '<div class="score-bar"><div class="score-fill" style="width:' + Math.min(100, pct) + '%"></div></div>' +
+                        '<span class="score-pct">' + Math.round(pct) + '%</span>' +
+                    '</div>' +
+                '</div>';
+            });
+            listEl.innerHTML = html;
+        }
+
+        // ===== Classes =====
+        function renderClasses() {
+            const container = document.getElementById('classesList');
+            if (enrolledClasses.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>You are not enrolled in any classes yet.</p></div>';
+                return;
+            }
+            let html = '';
+            enrolledClasses.forEach(sc => {
+                const className = sc.className || sc;
+                const teacherName = sc.teacher ? sc.teacher.name : 'Teacher';
+                const classAssignments = assignments.filter(a => a.className === className);
+                const pendingCount = classAssignments.filter(a => !submittedIds.has(a.id)).length;
+                html += '<div class="class-card">' +
+                    '<div class="class-avatar" style="background:' + stringToColor(className) + '">' + escapeHtml(className.charAt(0)) + '</div>' +
+                    '<div class="class-info"><h3>' + escapeHtml(className) + '</h3><span class="class-teacher">' + escapeHtml(teacherName) + '</span></div>' +
+                    '<div class="class-stats-row"><span>' + classAssignments.length + ' assignments</span>' +
+                        (pendingCount > 0 ? '<span class="badge badge-amber">' + pendingCount + ' pending</span>' : '<span class="badge badge-green">All done</span>') +
+                    '</div>' +
+                '</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        // ===== Filters =====
+        function populateClassFilter() {
+            const select = document.getElementById('classFilter');
+            const classNames = [];
+            enrolledClasses.forEach(sc => {
+                const cn = sc.className || sc;
+                if (classNames.indexOf(cn) < 0) classNames.push(cn);
+            });
+            classNames.forEach(cn => {
+                const opt = document.createElement('option');
+                opt.value = cn;
+                opt.textContent = cn;
+                select.appendChild(opt);
+            });
+
+            select.addEventListener('change', filterAssignments);
+            document.getElementById('assignmentFilter').addEventListener('change', filterAssignments);
+        }
+
+        function filterAssignments() {
+            const statusFilter = document.getElementById('assignmentFilter').value;
+            const classFilterVal = document.getElementById('classFilter').value;
+            document.querySelectorAll('#assignmentsList .assignment-card').forEach(card => {
+                let show = true;
+                if (classFilterVal !== 'all' && card.dataset.class !== classFilterVal) show = false;
+                if (statusFilter !== 'all' && card.dataset.status !== statusFilter) show = false;
+                card.style.display = show ? '' : 'none';
+            });
+        }
+
+        // ===== Navigation =====
+        window.switchSection = function(sectionId) {
+            document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+            const target = document.getElementById('section-' + sectionId);
+            if (!target) return;
+            target.classList.add('active');
+
+            document.querySelectorAll('.nav-item').forEach(link => {
+                const href = link.getAttribute('href') || '';
+                if (href.indexOf('section=' + sectionId) >= 0 || (sectionId === 'overview' && href.indexOf('/studentDash') >= 0 && href.indexOf('section=') < 0)) {
+                    link.classList.add('active');
+                }
+            });
+
+            const titles = { overview: 'Dashboard', assignments: 'Assignments', submissions: 'My Submissions', grades: 'Grades', classes: 'My Classes' };
+            const pageTitleEl = document.getElementById('pageTitle');
+            if (pageTitleEl) pageTitleEl.textContent = titles[sectionId] || 'Dashboard';
+
+            const url = new URL(window.location);
+            if (sectionId === 'overview') url.searchParams.delete('section');
+            else url.searchParams.set('section', sectionId);
+            window.history.pushState({}, '', url);
+        };
+
+        function setupNavigation() {
+            const urlParams = new URLSearchParams(window.location.search);
+            window.switchSection(urlParams.get('section') || 'overview');
+        }
+
+        function checkDeepLink() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const submitId = urlParams.get('submit');
+            const errorParam = urlParams.get('error');
+            if (errorParam === 'graded') {
+                showToast('This assignment has already been graded and can no longer be resubmitted.', 'error');
+                return;
+            }
+            if (!submitId) return;
+            const assignment = assignments.find(a => a.id == submitId);
+            if (assignment) {
+                setTimeout(() => openSubmitModal(assignment.id), 300);
+            }
+        }
+
+        // ===== Submit Modal =====
+        window.openSubmitModal = function(assignmentId) {
+            const assignment = assignments.find(a => a.id == assignmentId);
+            if (!assignment) return;
+            document.getElementById('submitAssignmentId').value = assignmentId;
+            document.getElementById('submitModalTitle').textContent = 'Submit: ' + (assignment.title || 'Assignment');
+
+            const detailsEl = document.getElementById('submitModalDetails');
+            if (detailsEl) {
+                if (assignment.description) {
+                    document.getElementById('submitModalDescription').textContent = assignment.description;
+                    const deadline = parseDate(assignment.deadline);
+                    document.getElementById('submitModalDeadline').textContent = deadline ? 'Due: ' + formatDateTime(deadline) : 'No deadline';
+                    document.getElementById('submitModalPoints').textContent = assignment.points ? assignment.points + ' pts' : '';
+                    detailsEl.style.display = 'block';
+                } else {
+                    detailsEl.style.display = 'none';
+                }
+            }
+
+            document.getElementById('commentsInput').value = '';
+
+            const fileNameEl = document.getElementById('fileName');
+            if (fileNameEl) fileNameEl.textContent = 'No file chosen';
+            const fileInput = document.getElementById('submitFile');
+            if (fileInput) fileInput.value = '';
+            const area = document.getElementById('fileUploadArea');
+            if (area) area.classList.remove('has-file');
+
+            const gfGroup = document.getElementById('googleFormGroup');
+            const googleFormUrl = assignment.googleFormUrl || '';
+            if (googleFormUrl) {
+                gfGroup.style.display = 'block';
+                document.getElementById('googleFormLink').href = googleFormUrl;
+            } else {
+                gfGroup.style.display = 'none';
+            }
+
+            openModal('submitModal');
+        };
+
+        window.openModal = function(id) {
+            const el = document.getElementById(id);
+            if (el) { el.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+        };
+        window.closeModal = function(id) {
+            const el = document.getElementById(id);
+            if (el) { el.style.display = 'none'; document.body.style.overflow = ''; }
+        };
+
+        function setupFileUpload() {
+            const area = document.getElementById('fileUploadArea');
+            const input = document.getElementById('submitFile');
+            const nameDisplay = document.getElementById('fileName');
+            if (!area || !input) return;
+
+            area.addEventListener('click', function(e) {
+                if (e.target.id !== 'fileName') input.click();
+            });
+            area.addEventListener('dragover', function(e) { e.preventDefault(); area.classList.add('has-file'); });
+            area.addEventListener('dragleave', function() { area.classList.remove('has-file'); });
+            area.addEventListener('drop', function(e) {
+                e.preventDefault();
+                area.classList.remove('has-file');
+                if (e.dataTransfer.files && e.dataTransfer.files.length) {
+                    input.files = e.dataTransfer.files;
+                    nameDisplay.textContent = e.dataTransfer.files[0].name;
+                }
+            });
+            input.addEventListener('change', function() {
+                nameDisplay.textContent = (this.files && this.files[0]) ? this.files[0].name : 'No file chosen';
+            });
+        }
+
+        // ===== Session Messages =====
+        function checkSessionMessages() {
+            const msg = "${message}";
+            if (msg && msg.trim() !== '' && msg !== 'null') showToast(msg, 'success');
+            const err = "${error}";
+            if (err && err.trim() !== '' && err !== 'null') showToast(err, 'error');
+        }
+
+        // ===== Utilities =====
+        function getAssignmentStatus(a) {
+            if (submittedIds.has(a.id)) return 'submitted';
+            const deadline = parseDate(a.deadline);
+            if (deadline && deadline < new Date()) return 'overdue';
+            const threeDays = new Date(new Date().getTime() + 3 * 24 * 60 * 60 * 1000);
+            if (deadline && deadline <= threeDays) return 'due-soon';
+            return 'pending';
+        }
+        function parseDate(d) {
+            if (!d) return null;
+            if (d instanceof Date) return d;
+            if (Array.isArray(d)) return new Date(d[0], (d[1] || 1) - 1, d[2] || 1, d[3] || 0, d[4] || 0);
+            return new Date(d);
+        }
+        function formatDate(d) { return d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; }
+        function formatDateTime(d) {
+            const date = parseDate(d);
+            if (!date || isNaN(date.getTime())) return '';
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        }
+        function getTimeRemaining(deadline) {
+            const diff = deadline - new Date();
+            if (diff <= 0) return 'Overdue';
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            return days > 0 ? days + 'd ' + hours + 'h left' : hours + 'h left';
+        }
+        function stringToColor(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            const h = hash % 360;
+            return 'hsl(' + (h < 0 ? h + 360 : h) + ', 65%, 55%)';
+        }
+        function escapeHtml(s) { return s ? String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : ''; }
+        function escapeJs(s) { return s ? String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"') : ''; }
+        function truncate(s, l) { return (!s || s.length <= l) ? (s || '') : s.substring(0, l) + '...'; }
+        function showToast(msg, type) {
+            if (typeof window.showToast === 'function') window.showToast(msg, type);
+            else alert(msg);
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    })();
+    </script>
+    </jsp:attribute>
+
+    <jsp:body>
+    <!-- Server Data Injection -->
+    <script id="server-data" type="application/json">${realData != null && realData != '' ? realData : "{}"}</script>
+    <script>
+        try { window.serverData = JSON.parse(document.getElementById('server-data').textContent); }
+        catch (e) { window.serverData = {}; console.error('Failed to parse serverData', e); }
+    </script>
+
+    <!-- Section: Overview -->
+    <section class="content-section active" id="section-overview">
+        <h2 class="section-title" id="pageTitle" style="margin-bottom:20px;">Dashboard</h2>
+
+        <div class="stats-grid">
+            <div class="stat-card stat-purple">
+                <div class="stat-header">
+                    <span class="stat-title">Enrolled Classes</span>
+                    <div class="stat-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
                     </div>
                 </div>
+                <span class="stat-value" id="statCourses">0</span>
+                <div class="stat-trend trend-neutral"><span class="trend-text" id="trendCourses">-</span></div>
+            </div>
 
-                <!-- Assignment Details Overlay -->
-                <div id="assignmentDetailsOverlay" class="overlay" style="display: none;">
-                    <div class="overlay-content">
-                        <div class="overlay-header">
-                            <h2 id="assignmentDetailsTitle">Assignment Details</h2>
-                            <button class="close-btn" onclick="closeOverlay('assignmentDetailsOverlay')">×</button>
-                        </div>
-                        <div class="overlay-body">
-                            <div class="assignment-details-container">
-                                <div class="assignment-header">
-                                    <div class="assignment-meta">
-                                        <span class="assignment-course" id="assignmentCourse"></span>
-                                        <span class="assignment-difficulty" id="assignmentDifficulty"></span>
-                                        <span class="assignment-points" id="assignmentPoints"></span>
-                                    </div>
-                                    <div class="assignment-due">
-                                        <span class="due-label">Due Date:</span>
-                                        <span id="assignmentDueDate"></span>
-                                    </div>
-                                </div>
-
-                                <div class="assignment-description">
-                                    <h4>Description</h4>
-                                    <p id="assignmentDescription"></p>
-                                </div>
-
-                                <div class="assignment-requirements">
-                                    <h4>Requirements</h4>
-                                    <ul id="assignmentRequirements"></ul>
-                                </div>
-
-                                <div class="assignment-actions">
-                                    <button class="btn btn-secondary"
-                                        onclick="closeOverlay('assignmentDetailsOverlay')">Back</button>
-                                    <button class="btn btn-primary" id="assignmentActionButton"
-                                        onclick="startAssignmentFromDetails()">Start Assignment</button>
-                                </div>
-                            </div>
-                        </div>
+            <div class="stat-card stat-yellow">
+                <div class="stat-header">
+                    <span class="stat-title">Total Assignments</span>
+                    <div class="stat-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                     </div>
                 </div>
+                <span class="stat-value" id="statTotal">0</span>
+                <div class="stat-trend trend-neutral"><span class="trend-text" id="trendAssignments">-</span></div>
+            </div>
 
-                <!-- Live Class Overlay -->
-                <div id="liveClassOverlay" class="overlay" style="display: none;">
-                    <div class="overlay-content">
-                        <div class="overlay-header">
-                            <h2 id="liveClassTitle">Live Class</h2>
-                            <button class="close-btn" onclick="closeOverlay('liveClassOverlay')">×</button>
-                        </div>
-                        <div class="overlay-body">
-                            <div class="live-class-container">
-                                <div class="class-video">
-                                    <div class="video-placeholder">
-                                        <span class="video-icon">🎥</span>
-                                        <p id="liveClassStatus"></p>
-                                    </div>
-                                </div>
-
-                                <div class="class-info">
-                                    <h3 id="liveClassTopic"></h3>
-                                    <p id="liveClassInstructor"></p>
-                                    <div class="class-stats">
-                                        <div class="stat-item">
-                                            <span class="stat-label">Duration</span>
-                                            <span id="liveClassDuration"></span>
-                                        </div>
-                                        <div class="stat-item">
-                                            <span class="stat-label">Participants</span>
-                                            <span id="liveClassParticipants"></span>
-                                        </div>
-                                    </div>
-
-                                    <div class="class-actions">
-                                        <button class="btn btn-secondary"
-                                            onclick="closeOverlay('liveClassOverlay')">Close</button>
-                                        <button class="btn btn-primary" id="liveClassActionButton"
-                                            onclick="joinLiveClassFromOverlay()">Join Session</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+            <div class="stat-card stat-green">
+                <div class="stat-header">
+                    <span class="stat-title">Submitted</span>
+                    <div class="stat-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                     </div>
                 </div>
+                <span class="stat-value" id="statSubmitted">0</span>
+                <div class="stat-trend trend-neutral"><span class="trend-text" id="trendSubmitted">-</span></div>
+            </div>
 
-                <!-- Achievement Details Overlay -->
-                <div id="achievementDetailsOverlay" class="overlay" style="display: none;">
-                    <div class="overlay-content">
-                        <div class="overlay-header">
-                            <h2 id="achievementDetailsTitle">Achievement Details</h2>
-                            <button class="close-btn" onclick="closeOverlay('achievementDetailsOverlay')">×</button>
-                        </div>
-                        <div class="overlay-body">
-                            <div class="achievement-details-container">
-                                <div class="achievement-showcase">
-                                    <div class="achievement-icon-large" id="achievementDetailsIcon"></div>
-                                    <h3 id="achievementDetailsName"></h3>
-                                    <span class="achievement-category" id="achievementDetailsCategory"></span>
-                                </div>
-
-                                <div class="achievement-description">
-                                    <h4>Description</h4>
-                                    <p id="achievementDetailsDescription"></p>
-                                </div>
-
-                                <div class="achievement-progress" id="achievementProgressSection">
-                                    <h4>Progress</h4>
-                                    <div class="progress-bar-large">
-                                        <div class="progress-fill" id="achievementProgressBar"></div>
-                                    </div>
-                                    <div class="progress-text" id="achievementProgressText"></div>
-                                </div>
-
-                                <div class="achievement-reward">
-                                    <h4>Reward</h4>
-                                    <span class="reward-text" id="achievementReward"></span>
-                                </div>
-
-                                <div class="achievement-actions">
-                                    <button class="btn btn-secondary"
-                                        onclick="closeOverlay('achievementDetailsOverlay')">Close</button>
-                                    <button class="btn btn-primary" id="achievementActionButton"
-                                        onclick="shareAchievementFromOverlay()">Share Achievement</button>
-                                </div>
-                            </div>
-                        </div>
+            <div class="stat-card stat-orange">
+                <div class="stat-header">
+                    <span class="stat-title">Pending</span>
+                    <div class="stat-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                     </div>
                 </div>
+                <span class="stat-value" id="statPending">0</span>
+                <div class="stat-trend trend-neutral"><span class="trend-text" id="trendPending">-</span></div>
+            </div>
+        </div>
 
-                <!-- Hamburger Menu -->
-                <div class="hamburger" onclick="toggleSidebar()">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
+        <div class="section-block">
+            <div class="section-header-row">
+                <h2 class="section-title">Due Soon</h2>
+            </div>
+            <div class="card-container">
+                <div id="dueSoonList" class="assignment-list"></div>
+            </div>
+        </div>
 
-                <!-- Sidebar Overlay -->
-                <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+        <div class="section-block">
+            <div class="section-header-row">
+                <h2 class="section-title">Recent Submissions</h2>
+            </div>
+            <div class="card-container">
+                <div id="recentSubmissionsList" class="submission-list"></div>
+            </div>
+        </div>
+    </section>
 
-                <!-- Sidebar -->
-                <aside class="sidebar">
-                    <div class="logo">
-                        <h1>IGISHYITSI</h1>
-                    </div>
-                    <nav>
-                        <ul class="nav-menu">
-                            <li class="nav-item">
-                                <a href="#" class="nav-link active" onclick="navigateTo(event, 'dashboard')">
-                                    <span class="nav-icon">📊</span>
-                                    <span>Dashboard</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'my-courses')">
-                                    <span class="nav-icon">📚</span>
-                                    <span>My Courses</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'assignments')">
-                                    <span class="nav-icon">📝</span>
-                                    <span>Assignments</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'live-class')">
-                                    <span class="nav-icon">🎥</span>
-                                    <span>Live Classes</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'messages')">
-                                    <span class="nav-icon">💬</span>
-                                    <span>Messages</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'grades')">
-                                    <span class="nav-icon">📈</span>
-                                    <span>Grades</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'achievements')">
-                                    <span class="nav-icon">🏆</span>
-                                    <span>Achievements</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="#" class="nav-link" onclick="navigateTo(event, 'settings')">
-                                    <span class="nav-icon">⚙️</span>
-                                    <span>Settings</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="${pageContext.request.contextPath}/logout" class="nav-link">
-                                    <span class="nav-icon">🚪</span>
-                                    <span>Logout</span>
-                                </a>
-                            </li>
-                        </ul>
-                    </nav>
-                </aside>
+    <!-- Section: Assignments -->
+    <section class="content-section" id="section-assignments">
+        <div class="section-header-row" style="margin-bottom:24px; border-radius:10px;">
+            <h2 class="section-title">All Assignments</h2>
+            <div class="filter-bar">
+                <select id="assignmentFilter" class="filter-select">
+                    <option value="all">All</option>
+                    <option value="pending">Pending</option>
+                    <option value="submitted">Submitted</option>
+                    <option value="overdue">Overdue</option>
+                </select>
+                <select id="classFilter" class="filter-select">
+                    <option value="all">All Classes</option>
+                </select>
+            </div>
+        </div>
+        <div id="assignmentsList" class="assignment-list"></div>
+    </section>
 
-                <!-- Main Content -->
-                <main class="main-content">
-                    <!-- Dashboard Section -->
-                    <div id="dashboard" class="content-section active">
-                        <!-- Header -->
-                        <header class="header">
-                            <div class="header-title">
-                                <h2 id="stName">Welcome back, ${user.name}!</h2>
-                                <p class="header-subtitle">You have ${stats.pendingAssignments} assignments due soon</p>
-                            </div>
-                            <div class="header-actions">
-                                <div class="notification-bell" onclick="toggleNotifications()">
-                                    <span class="bell-icon">🔔</span>
-                                    <span class="notification-badge">5</span>
-                                </div>
-                            </div>
-                        </header>
+    <!-- Section: Submissions -->
+    <section class="content-section" id="section-submissions">
+        <div class="section-block">
+            <div class="section-header-row">
+                <h2 class="section-title">My Submissions</h2>
+            </div>
+            <div class="card-container">
+                <div id="submissionsList"></div>
+            </div>
+        </div>
+    </section>
 
-                        <!-- Stats Grid -->
-                        <div class="stats-grid">
-                            <div class="stat-card neumorphic">
-                                <div class="stat-icon">📚</div>
-                                <div class="stat-label">Active Courses</div>
-                                <div class="stat-value">${stats.totalCourses}</div>
-                                <div class="stat-change">Enrolled</div>
-                            </div>
-                            <div class="stat-card neumorphic">
-                                <div class="stat-icon">✅</div>
-                                <div class="stat-label">Completed</div>
-                                <div class="stat-value">${stats.submittedAssignments}</div>
-                                <div class="stat-change">Assignments</div>
-                            </div>
-                            <div class="stat-card neumorphic">
-                                <div class="stat-icon">⏰</div>
-                                <div class="stat-label">Pending</div>
-                                <div class="stat-value">${stats.pendingAssignments}</div>
-                                <div class="stat-change">To finish</div>
-                            </div>
-                            <div class="stat-card neumorphic">
-                                <div class="stat-icon">📊</div>
-                                <div class="stat-label">Average Grade</div>
-                                <div class="stat-value">${not empty user.id ? 'A-' : 'N/A'}</div>
-                                <div class="stat-change">Calculated</div>
-                            </div>
-                        </div>
+    <!-- Section: Grades -->
+    <section class="content-section" id="section-grades">
+        <h2 class="section-title" style="margin-bottom:20px;">Grades &amp; Academic Progress</h2>
+        <div class="grades-summary" id="gradesSummary"></div>
+        <div class="section-block">
+            <div class="section-header-row">
+                <h2 class="section-title">Recent Grades</h2>
+            </div>
+            <div class="card-container">
+                <div id="gradesList" class="grade-list" style="display:flex; flex-direction:column; gap:16px;"></div>
+            </div>
+        </div>
+    </section>
 
-                        <!-- Dashboard Grid -->
-                        <div class="dashboard-grid">
-                            <!-- Most Popular Courses -->
-                            <div class="section-card neumorphic">
-                                <div class="section-header">
-                                    <h3 class="section-title">Most Popular Courses</h3>
-                                    <a href="#" class="see-all" onclick="navigateTo(event, 'my-courses')">View All</a>
-                                </div>
-                                <div class="courses-list">
-                                    <c:forEach var="course" items="${enrolledClasses}">
-                                        <div class="course-item" onclick="navigateTo(event, 'my-courses')">
-                                            <div class="course-avatar"
-                                                style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                                                <span>${course.className.substring(0, 2).toUpperCase()}</span>
-                                            </div>
-                                            <div class="course-info">
-                                                <h4>${course.className}</h4>
-                                                <p>Prof. ${course.teacher.name}</p>
-                                                <div class="course-rating">
-                                                    <span class="stars">⭐⭐⭐⭐⭐</span>
-                                                    <span class="rating-text">4.9</span>
-                                                </div>
-                                            </div>
-                                            <div class="course-progress">
-                                                <div class="progress-bar">
-                                                    <div class="progress-fill" style="width: 100%;"></div>
-                                                </div>
-                                                <span class="progress-text">Active</span>
-                                            </div>
-                                        </div>
-                                    </c:forEach>
-                                    <c:if test="${empty enrolledClasses}">
-                                        <p style="padding: 20px; text-align: center; color: var(--text-secondary);">No
-                                            courses enrolled yet.</p>
-                                    </c:if>
-                                </div>
-                            </div>
+    <!-- Section: Classes -->
+    <section class="content-section" id="section-classes">
+        <h2 class="section-title" style="margin-bottom:20px;">My Enrolled Classes</h2>
+        <div id="classesList" class="classes-grid"></div>
+    </section>
 
-                            <!-- Right Column -->
-                            <div style="display: flex; flex-direction: column; gap: 24px;">
-                                <!-- Trending Assignments -->
-                                <div class="section-card neumorphic">
-                                    <div class="section-header">
-                                        <h3 class="section-title">Trending Assignments</h3>
-                                        <a href="#" class="see-all" onclick="navigateTo(event, 'assignments')">View
-                                            All</a>
-                                    </div>
-                                    <div class="trending-list">
-                                        <c:forEach var="asgn" items="${assignments}" varStatus="status">
-                                            <c:if test="${status.index < 3}">
-                                                <div class="trending-item" onclick="navigateTo(event, 'assignments')">
-                                                    <div class="trending-avatar"
-                                                        style="background: var(--primary-gradient);">
-                                                        <span>${asgn.title.substring(0, 1).toUpperCase()}</span>
-                                                    </div>
-                                                    <div class="trending-info">
-                                                        <h4>${asgn.title}</h4>
-                                                        <p>${asgn.className} • Due
-                                                            <fmt:formatDate value="${asgn.deadline}" pattern="MMM dd" />
-                                                        </p>
-                                                        <div class="trending-meta">
-                                                            <span class="difficulty">General</span>
-                                                            <span class="points">100 pts</span>
-                                                        </div>
-                                                    </div>
-                                                    <button class="choose-btn"
-                                                        onclick="event.stopPropagation(); window.location.href='${pageContext.request.contextPath}/submitAssignment?id=${asgn.id}'">
-                                                        START
-                                                    </button>
-                                                </div>
-                                            </c:if>
-                                        </c:forEach>
-                                        <c:if test="${empty assignments}">
-                                            <p style="padding: 20px; text-align: center; color: var(--text-secondary);">
-                                                No trending assignments.</p>
-                                        </c:if>
-                                    </div>
-                                </div>
-
-                                <!-- Featured Achievement -->
-                                <div class="section-card neumorphic featured-achievement">
-                                    <div class="achievement-header">
-                                        <h3 class="section-title">Featured Achievement</h3>
-                                        <span class="achievement-badge">🏆</span>
-                                    </div>
-                                    <div class="achievement-content">
-                                        <div class="achievement-icon">🌟</div>
-                                        <h4>Code Master</h4>
-                                        <p>Complete 25 coding assignments</p>
-                                        <div class="achievement-progress">
-                                            <div class="progress-bar">
-                                                <div class="progress-fill" style="width: 96%;"></div>
-                                            </div>
-                                            <span class="progress-text">24/25</span>
-                                        </div>
-                                        <button class="achievement-btn" onclick="showAchievementDetails()">
-                                            View Details
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- My Courses Section -->
-                    <div id="my-courses" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>My Courses</h2>
-                                <p class="header-subtitle">Track your progress across all enrolled courses</p>
-                            </div>
-                        </header>
-
-                        <div class="courses-grid" id="coursesGrid">
-                            <!-- Courses will be populated here -->
-                        </div>
-                    </div>
-
-                    <!-- Assignments Section -->
-                    <div id="assignments" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>Assignments</h2>
-                                <p class="header-subtitle">View, open, and submit your assignments</p>
-                            </div>
-                            <div class="header-actions">
-                                <select id="assignmentFilter" onchange="filterStudentAssignments(this.value)">
-                                    <option value="all">All Assignments</option>
-                                    <option value="pending">Pending</option>
-                                    <option value="submitted">Submitted</option>
-                                    <option value="graded">Graded</option>
-                                </select>
-                            </div>
-                        </header>
-
-                        <!-- Server-rendered assignment cards -->
-                        <div id="assignmentCards" style="display:flex;flex-direction:column;gap:20px;padding:8px 0;">
-                            <c:choose>
-                                <c:when test="${empty assignments}">
-                                    <div style="text-align:center;padding:60px 20px;color:var(--text-muted);">
-                                        <div style="font-size:56px;margin-bottom:16px;">📭</div>
-                                        <h3 style="color:white;margin-bottom:8px;">No Assignments Yet</h3>
-                                        <p>Your teacher hasn't posted any assignments for your class yet. Check back
-                                            soon!</p>
-                                    </div>
-                                </c:when>
-                                <c:otherwise>
-                                    <c:forEach var="asgn" items="${assignments}" varStatus="loop">
-                                        <%-- Check if student has submitted this assignment --%>
-                                            <c:set var="mySubmission" value="${null}" />
-                                            <c:forEach var="sub" items="${recentSubmissions}">
-                                                <c:if test="${sub.assignment.id == asgn.id}">
-                                                    <c:set var="mySubmission" value="${sub}" />
-                                                </c:if>
-                                            </c:forEach>
-
-                                            <c:set var="cardStatus"
-                                                value="${mySubmission != null ? (mySubmission.grade != null ? 'graded' : 'submitted') : 'pending'}" />
-
-                                            <div class="assignment-card-full neumorphic" data-status="${cardStatus}"
-                                                style="border-radius:16px;padding:24px;background:var(--glass-bg);border:1px solid var(--glass-border);">
-
-                                                <!-- Card Header -->
-                                                <div
-                                                    style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
-                                                    <div>
-                                                        <h3 style="margin:0 0 4px 0;font-size:18px;color:white;">
-                                                            ${asgn.title}</h3>
-                                                        <p style="margin:0;font-size:13px;color:var(--text-muted);">
-                                                            📚 ${asgn.className} &nbsp;•&nbsp;
-                                                            🗓 Due <strong
-                                                                style="color:white;">${asgn.formattedDeadline}</strong>
-                                                            &nbsp;•&nbsp;
-                                                            ⭐ <strong style="color:white;">${asgn.points} pts</strong>
-                                                        </p>
-                                                    </div>
-                                                    <div
-                                                        style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                                                        <c:choose>
-                                                            <c:when test="${cardStatus == 'graded'}">
-                                                                <span
-                                                                    style="background:#065f46;color:#6ee7b7;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">
-                                                                    ✅ Graded — ${mySubmission.grade}/100
-                                                                </span>
-                                                            </c:when>
-                                                            <c:when test="${cardStatus == 'submitted'}">
-                                                                <span
-                                                                    style="background:#1e3a5f;color:#93c5fd;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">
-                                                                    📤 Submitted
-                                                                </span>
-                                                            </c:when>
-                                                            <c:otherwise>
-                                                                <c:choose>
-                                                                    <c:when test="${asgn.status == 'Closed'}">
-                                                                        <span
-                                                                            style="background:#3b1c1c;color:#fca5a5;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">
-                                                                            ❌ Closed
-                                                                        </span>
-                                                                    </c:when>
-                                                                    <c:otherwise>
-                                                                        <span
-                                                                            style="background:#431407;color:#fdba74;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">
-                                                                            ⏰ Pending
-                                                                        </span>
-                                                                    </c:otherwise>
-                                                                </c:choose>
-                                                            </c:otherwise>
-                                                        </c:choose>
-                                                    </div>
-                                                </div>
-
-                                                <!-- Description -->
-                                                <p
-                                                    style="color:var(--text-secondary);font-size:14px;line-height:1.6;margin-bottom:16px;">
-                                                    <c:out value="${asgn.description}" />
-                                                </p>
-
-                                                <!-- Optional Google Form link -->
-                                                <c:if test="${not empty asgn.googleFormUrl}">
-                                                    <a href="${asgn.googleFormUrl}" target="_blank"
-                                                        style="display:inline-flex;align-items:center;gap:6px;background:rgba(56,189,248,0.1);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);padding:8px 16px;border-radius:8px;text-decoration:none;font-size:13px;margin-bottom:16px;">
-                                                        🔗 Open Google Form (extra resource)
-                                                    </a>
-                                                </c:if>
-
-                                                <!-- If GRADED: show grade & feedback -->
-                                                <c:if test="${cardStatus == 'graded'}">
-                                                    <div
-                                                        style="background:rgba(6,95,70,0.2);border:1px solid rgba(110,231,183,0.3);border-radius:12px;padding:16px;margin-top:8px;">
-                                                        <p style="color:#6ee7b7;font-weight:600;margin:0 0 6px 0;">
-                                                            Grade: ${mySubmission.grade}/100</p>
-                                                        <c:if test="${not empty mySubmission.feedback}">
-                                                            <p
-                                                                style="color:var(--text-secondary);font-size:14px;margin:0;">
-                                                                💬 <em>
-                                                                    <c:out value="${mySubmission.feedback}" />
-                                                                </em>
-                                                            </p>
-                                                        </c:if>
-                                                    </div>
-                                                </c:if>
-
-                                                <!-- If SUBMITTED: show submission info -->
-                                                <c:if test="${cardStatus == 'submitted'}">
-                                                    <div
-                                                        style="background:rgba(30,58,95,0.3);border:1px solid rgba(147,197,253,0.2);border-radius:12px;padding:16px;margin-top:8px;">
-                                                        <p style="color:#93c5fd;font-weight:600;margin:0 0 4px 0;">
-                                                            ✅ Submitted — awaiting grade
-                                                        </p>
-                                                        <p style="color:var(--text-muted);font-size:12px;margin:0;">
-                                                            <fmt:formatDate value="${mySubmission.submittedAt}"
-                                                                pattern="MMM dd, yyyy HH:mm" />
-                                                        </p>
-                                                    </div>
-                                                </c:if>
-
-                                                <!-- If PENDING and assignment is still open: show submission form -->
-                                                <c:if test="${cardStatus == 'pending' && asgn.status != 'Closed'}">
-                                                    <div id="submitSection_${asgn.id}" style="margin-top:4px;">
-                                                        <button type="button" onclick="toggleSubmitForm('${asgn.id}')"
-                                                            style="background:var(--primary-gradient);color:white;border:none;padding:10px 24px;border-radius:10px;font-weight:600;cursor:pointer;font-size:14px;">
-                                                            📤 Submit Assignment
-                                                        </button>
-
-                                                        <div id="submitForm_${asgn.id}"
-                                                            style="display:none;margin-top:16px;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:12px;padding:20px;">
-                                                            <form
-                                                                action="${pageContext.request.contextPath}/submitAssignment"
-                                                                method="POST" enctype="multipart/form-data">
-                                                                <input type="hidden" name="assignmentId"
-                                                                    value="${asgn.id}">
-
-                                                                <div class="form-group">
-                                                                    <label
-                                                                        style="font-size:14px;font-weight:600;color:white;">Your
-                                                                        Answer / Notes</label>
-                                                                    <textarea name="content" rows="4"
-                                                                        style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--glass-border);border-radius:8px;color:white;padding:10px;font-size:14px;resize:vertical;margin-top:6px;"
-                                                                        placeholder="Write your answer, notes, or any comments here..."></textarea>
-                                                                </div>
-
-                                                                <div class="form-group">
-                                                                    <label
-                                                                        style="font-size:14px;font-weight:600;color:white;">Upload
-                                                                        File <span
-                                                                            style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                                                                    <div style="margin-top:6px;border:2px dashed var(--glass-border);border-radius:10px;padding:20px;text-align:center;cursor:pointer;"
-                                                                        onclick="document.getElementById('file_${asgn.id}').click()">
-                                                                        <input type="file" id="file_${asgn.id}"
-                                                                            name="file" style="display:none;"
-                                                                            onchange="document.getElementById('fileName_${asgn.id}').innerText = this.files[0]?.name || 'No file chosen'">
-                                                                        <p id="fileName_${asgn.id}"
-                                                                            style="color:var(--text-muted);margin:0;font-size:13px;">
-                                                                            📎 Click to attach a file (PDF, DOCX, ZIP,
-                                                                            image...)
-                                                                        </p>
-                                                                    </div>
-                                                                </div>
-
-                                                                <c:if test="${not empty asgn.googleFormUrl}">
-                                                                    <div class="form-group">
-                                                                        <label
-                                                                            style="font-size:14px;font-weight:600;color:#38bdf8;">
-                                                                            Google Form Response URL <span
-                                                                                style="font-weight:400;color:var(--text-muted);">(optional)</span>
-                                                                        </label>
-                                                                        <input type="url" name="formResponseUrl"
-                                                                            style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--glass-border);border-radius:8px;color:white;padding:10px;font-size:14px;margin-top:6px;"
-                                                                            placeholder="Paste your form response link (if provided by teacher)">
-                                                                    </div>
-                                                                </c:if>
-
-                                                                <div style="display:flex;gap:10px;margin-top:4px;">
-                                                                    <button type="submit"
-                                                                        style="flex:1;background:var(--primary-gradient);color:white;border:none;padding:11px;border-radius:10px;font-weight:600;cursor:pointer;font-size:14px;">
-                                                                        ✅ Submit Now
-                                                                    </button>
-                                                                    <button type="button"
-                                                                        onclick="toggleSubmitForm('${asgn.id}')"
-                                                                        style="background:rgba(255,255,255,0.07);color:var(--text-secondary);border:1px solid var(--glass-border);padding:11px 20px;border-radius:10px;cursor:pointer;font-size:14px;">
-                                                                        Cancel
-                                                                    </button>
-                                                                </div>
-                                                            </form>
-                                                        </div>
-                                                    </div>
-                                                </c:if>
-                                            </div>
-                                    </c:forEach>
-                                </c:otherwise>
-                            </c:choose>
-                        </div>
-                    </div>
-
-                    <!-- Live Class Section -->
-                    <div id="live-class" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>Live Classes</h2>
-                                <p class="header-subtitle">Join live sessions and interact with instructors</p>
-                            </div>
-                        </header>
-
-                        <div class="live-classes-grid" id="liveClassesGrid">
-                            <!-- Live classes will be populated here -->
-                        </div>
-                    </div>
-
-                    <!-- Messages Section -->
-                    <div id="messages" class="content-section">
-                        <div class="messages-container">
-                            <div class="contacts-list">
-                                <div class="contacts-header">
-                                    <h3>Messages</h3>
-                                    <button class="btn-icon">✏️</button>
-                                </div>
-                                <div class="contact-item active" onclick="switchContact('Prof. Sarah Johnson')">
-                                    <div class="contact-avatar">SJ</div>
-                                    <div class="contact-info">
-                                        <h4>Prof. Sarah Johnson</h4>
-                                        <p>Great work on the project!</p>
-                                    </div>
-                                    <span class="time">2m</span>
-                                </div>
-                                <div class="contact-item" onclick="switchContact('Dr. Michael Chen')">
-                                    <div class="contact-avatar">MC</div>
-                                    <div class="contact-info">
-                                        <h4>Dr. Michael Chen</h4>
-                                        <p>Don't forget tomorrow's quiz</p>
-                                    </div>
-                                    <span class="time">1h</span>
-                                </div>
-                                <div class="contact-item" onclick="switchContact('Study Group')">
-                                    <div class="contact-avatar avatar-yellow">SG</div>
-                                    <div class="contact-info">
-                                        <h4>Study Group</h4>
-                                        <p>Meeting at 3 PM today</p>
-                                    </div>
-                                    <span class="time">3h</span>
-                                </div>
-                            </div>
-                            <div class="chat-area">
-                                <div class="chat-area-header">
-                                    <div class="contact-info">
-                                        <h3 id="currentContactName">Prof. Sarah Johnson</h3>
-                                        <p id="currentContactStatus">Web Development • Online</p>
-                                    </div>
-                                    <div class="header-actions">
-                                        <button class="btn btn-secondary">View Profile</button>
-                                    </div>
-                                </div>
-                                <div class="chat-area-messages" id="mainChatMessages">
-                                    <div class="message received">
-                                        <p>Hi Alex! I just reviewed your React assignment submission. Excellent work!
-                                        </p>
-                                        <span class="msg-time">10:30 AM</span>
-                                    </div>
-                                    <div class="message sent">
-                                        <p>Thank you professor! I really enjoyed working on it.</p>
-                                        <span class="msg-time">10:32 AM</span>
-                                    </div>
-                                    <div class="message received">
-                                        <p>Your attention to detail is impressive. Keep up the great work!</p>
-                                        <span class="msg-time">10:33 AM</span>
-                                    </div>
-                                </div>
-                                <div class="chat-input-area">
-                                    <input type="text" id="mainChatInput" placeholder="Type a message..."
-                                        onkeypress="handleEnter(event, 'mainChatInput', 'mainChatMessages')">
-                                    <button class="btn-primary"
-                                        onclick="sendMessage('mainChatInput', 'mainChatMessages')">Send</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Grades Section -->
-                    <div id="grades" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>Grades & Performance</h2>
-                                <p class="header-subtitle">Track your academic progress and performance</p>
-                            </div>
-                            <div class="header-actions">
-                                <button class="btn btn-secondary" onclick="exportGrades()">📥 Export Report</button>
-                            </div>
-                        </header>
-
-                        <div class="grades-overview">
-                            <div class="grade-summary neumorphic">
-                                <h3>Current GPA</h3>
-                                <div class="gpa-display">3.8</div>
-                                <p class="gpa-scale">Out of 4.0</p>
-                            </div>
-
-                            <div class="grade-courses neumorphic">
-                                <h3>Course Grades</h3>
-                                <div class="grade-list" id="gradeList">
-                                    <!-- Grades will be populated here -->
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Achievements Section -->
-                    <div id="achievements" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>Achievements</h2>
-                                <p class="header-subtitle">Unlock rewards and track your accomplishments</p>
-                            </div>
-                        </header>
-
-                        <div class="achievements-grid" id="achievementsGrid">
-                            <!-- Achievements will be populated here -->
-                        </div>
-                    </div>
-
-                    <!-- Settings Section -->
-                    <div id="settings" class="content-section">
-                        <header class="header">
-                            <div class="header-title">
-                                <h2>Settings</h2>
-                                <p class="header-subtitle">Manage your account and preferences</p>
-                            </div>
-                        </header>
-
-                        <div class="settings-container">
-                            <div class="settings-section neumorphic">
-                                <h3>Profile Information</h3>
-                                <div class="profile-form">
-                                    <div class="form-group">
-                                        <label>Full Name</label>
-                                        <input type="text" value="Alex Thompson" id="fullName">
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Email</label>
-                                        <input type="email" value="alex.thompson@university.edu" id="email">
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Student ID</label>
-                                        <input type="text" value="ST2024001" id="studentId" readonly>
-                                    </div>
-                                    <button class="btn btn-primary" onclick="saveProfile()">Save Changes</button>
-                                </div>
-                            </div>
-
-                            <div class="settings-section neumorphic">
-                                <h3>Preferences</h3>
-                                <div class="preferences-list">
-                                    <div class="preference-item">
-                                        <label class="switch">
-                                            <input type="checkbox" checked>
-                                            <span class="slider"></span>
-                                        </label>
-                                        <span>Email Notifications</span>
-                                    </div>
-                                    <div class="preference-item">
-                                        <label class="switch">
-                                            <input type="checkbox" checked>
-                                            <span class="slider"></span>
-                                        </label>
-                                        <span>Push Notifications</span>
-                                    </div>
-                                    <div class="preference-item">
-                                        <label class="switch">
-                                            <input type="checkbox">
-                                            <span class="slider"></span>
-                                        </label>
-                                        <span>Dark Mode</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </main>
-
-                <!-- Notification Dropdown -->
-                <div id="notificationDropdown" class="notification-dropdown">
-                    <h4>Notifications</h4>
-                    <div class="notification-list">
-                        <div class="notification-item">
-                            <div class="notification-icon">📝</div>
-                            <div class="notification-content">
-                                <p>New assignment posted in Web Development</p>
-                                <span class="notification-time">2 hours ago</span>
-                            </div>
-                        </div>
-                        <div class="notification-item">
-                            <div class="notification-icon">🏆</div>
-                            <div class="notification-content">
-                                <p>You've earned the "Quick Learner" badge!</p>
-                                <span class="notification-time">5 hours ago</span>
-                            </div>
-                        </div>
-                        <div class="notification-item">
-                            <div class="notification-icon">💬</div>
-                            <div class="notification-content">
-                                <p>New message from Prof. Sarah Johnson</p>
-                                <span class="notification-time">1 day ago</span>
-                            </div>
-                        </div>
+    <!-- Submit Assignment Modal -->
+    <div class="modal-overlay" id="submitModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="submitModalTitle">Submit Assignment</h2>
+                <button class="modal-close" type="button" onclick="closeModal('submitModal')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <form id="submitForm" action="${pageContext.request.contextPath}/submitAssignment" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="assignmentId" id="submitAssignmentId">
+                <div class="form-group" id="submitModalDetails" style="display:none; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:16px; margin-bottom:16px;">
+                    <p class="assignment-desc" id="submitModalDescription" style="white-space:pre-wrap; margin-bottom:10px;"></p>
+                    <div class="assignment-info" style="display:flex; gap:16px; flex-wrap:wrap; color:#a0aec0; font-size:13px;">
+                        <span id="submitModalDeadline"></span>
+                        <span id="submitModalPoints"></span>
                     </div>
                 </div>
-
-                <script src="${pageContext.request.contextPath}/js/toast.js"></script>
-                <script src="${pageContext.request.contextPath}/js/studentDash-fixed.js"></script>
-                <script>
-                    const errorMsg = "${error}";
-                    if (errorMsg && errorMsg.trim() !== "" && errorMsg !== "null") {
-                        showMessage('error', errorMsg);
-                    }
-                    // Session flash message (set after successful submission redirect)
-                    const flashMsg = "${sessionScope.message}";
-                    if (flashMsg && flashMsg.trim() !== "" && flashMsg !== "null") {
-                        showMessage('success', flashMsg);
-                        <% session.removeAttribute("message"); %>
-                    }
-                    const successMsg = "${success}";
-                    if (successMsg && successMsg.trim() !== "" && successMsg !== "null") {
-                        showMessage('success', successMsg);
-                    }
-
-                    /**
-                     * Toggle the inline submission form for a given assignment.
-                     * @param {string} assignmentId
-                     */
-                    function toggleSubmitForm(assignmentId) {
-                        const form = document.getElementById('submitForm_' + assignmentId);
-                        if (!form) return;
-                        form.style.display = form.style.display === 'none' ? 'block' : 'none';
-                    }
-
-                    /**
-                     * Filter server-rendered assignment cards by status.
-                     * @param {string} status one of: all, pending, submitted, graded
-                     */
-                    function filterStudentAssignments(status) {
-                        const cards = document.querySelectorAll('#assignmentCards .assignment-card-full');
-                        cards.forEach(function (card) {
-                            const cardStatus = card.getAttribute('data-status');
-                            if (status === 'all' || cardStatus === status) {
-                                card.style.display = '';
-                            } else {
-                                card.style.display = 'none';
-                            }
-                        });
-                    }
-                </script>
-                <script>
-                    // Real-Time WebSocket Connection
-                    (function () {
-                        let ws;
-                        function connectWebSocket() {
-                            const userId = '${user.id}';
-                            if (!userId) return;
-
-                            const host = window.location.host;
-                            const ctx = '${pageContext.request.contextPath}';
-                            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                            const wsUrl = protocol + '//' + host + ctx + '/ws/assignments/' + userId;
-
-                            ws = new WebSocket(wsUrl);
-
-                            ws.onopen = function () {
-                                console.log("Connected to real-time notification service");
-                            };
-
-                            ws.onmessage = function (event) {
-                                try {
-                                    const data = JSON.parse(event.data);
-                                    if (data.type === 'NEW_ASSIGNMENT') {
-                                        showMessage('info', `New Assignment in ${data.course}: ${data.title}`);
-
-                                        // Update stats
-                                        const pendingBadge = document.querySelector('.header-subtitle');
-                                        if (pendingBadge && pendingBadge.innerText.includes('assignments due soon')) {
-                                            const currentVal = parseInt(pendingBadge.innerText.match(/\d+/)[0]);
-                                            pendingBadge.innerText = `You have ${currentVal + 1} assignments due soon`;
-                                        }
-
-                                        // Re-run filter logic to show incoming assignment broadly
-                                        if (typeof appState !== 'undefined' && appState.assignments) {
-                                            appState.assignments.unshift({
-                                                id: data.id,
-                                                title: data.title,
-                                                course: data.course,
-                                                difficulty: 'General',
-                                                points: 100,
-                                                dueDate: data.dueDate,
-                                                status: 'pending',
-                                                grade: null,
-                                                description: data.description,
-                                                requirements: []
-                                            });
-
-                                            if (appState.stats) {
-                                                appState.stats.assignmentsPending = (appState.stats.assignmentsPending || 0) + 1;
-                                            }
-
-                                            if (document.getElementById('assignments') && document.getElementById('assignments').classList.contains('active')) {
-                                                const filterVal = document.getElementById('assignmentFilter') ? document.getElementById('assignmentFilter').value : 'all';
-                                                if (typeof loadAssignments === 'function') loadAssignments(filterVal);
-                                            } else if (document.getElementById('dashboard') && document.getElementById('dashboard').classList.contains('active')) {
-                                                if (typeof loadDashboard === 'function') loadDashboard();
-                                            }
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.error("Error parsing websocket message", e);
-                                }
-                            };
-
-                            ws.onclose = function () {
-                                setTimeout(connectWebSocket, 5000);
-                            };
-                        }
-
-                        document.addEventListener("DOMContentLoaded", connectWebSocket);
-                    })();
-                </script>
-            </body>
-
-            </html>
+                <div class="form-group">
+                    <label>Your Answer / Comments (Optional)</label>
+                    <textarea name="content" id="commentsInput" rows="4" placeholder="Write your answer, notes, or link description here..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Upload File (Optional, max 10MB)</label>
+                    <div class="file-upload-area" id="fileUploadArea">
+                        Drag &amp; drop your file here, or <span class="file-browse">browse</span>
+                        <span class="file-name" id="fileName">No file chosen</span>
+                    </div>
+                    <input type="file" name="file" id="submitFile" style="display:none;">
+                </div>
+                <div class="form-group" id="googleFormGroup" style="display:none;">
+                    <label>Google Form Link</label>
+                    <a id="googleFormLink" href="#" target="_blank">Open Google Form</a>
+                    <input type="url" name="formResponseUrl" placeholder="Paste your Google Form response URL after completing it (optional)">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('submitModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Submit Work</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    </jsp:body>
+</t:layout>

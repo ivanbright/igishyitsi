@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.example.esubmission.dao.UserDAO;
 import org.example.esubmission.model.User;
+import org.example.esubmission.service.EmailService;
 import org.example.esubmission.service.UserService;
 
 import java.io.IOException;
@@ -18,10 +19,12 @@ import java.io.IOException;
 public class VerificationServlet extends HttpServlet {
 
     private UserService userService;
+    private EmailService emailService;
 
     @Override
     public void init() throws ServletException {
         this.userService = new UserService(new UserDAO());
+        this.emailService = new EmailService();
     }
 
     @Override
@@ -33,6 +36,12 @@ public class VerificationServlet extends HttpServlet {
         if (user == null) {
             response.sendRedirect(request.getContextPath() + "/login");
             return;
+        }
+
+        if ("resend".equals(request.getParameter("action"))) {
+            String code = userService.generateVerificationCode(user);
+            emailService.sendVerificationEmail(user.getEmail(), code);
+            request.setAttribute("message", "A new verification code has been sent to your email.");
         }
 
         request.getRequestDispatcher("/WEB-INF/pages/verify.jsp").forward(request, response);

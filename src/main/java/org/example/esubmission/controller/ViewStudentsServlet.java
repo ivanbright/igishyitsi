@@ -53,6 +53,6 @@ public class ViewStudentsServlet extends HttpServlet {
         req.setAttribute("className", className);
         req.setAttribute("students", students);
 
-        req.getRequestDispatcher("/viewStudents.jsp").forward(req, resp);
+        req.getRequestDispatcher("/WEB-INF/pages/viewStudents.jsp").forward(req, resp);
     }
 }

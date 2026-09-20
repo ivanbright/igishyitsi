@@ -3,12 +3,15 @@ package org.example.esubmission.service;
 import org.example.esubmission.dao.AssignmentDAO;
 import org.example.esubmission.dao.StudentClassDAO;
 import org.example.esubmission.dao.SubmissionDAO;
+import org.example.esubmission.dao.TeacherClassDAO;
 import org.example.esubmission.model.Assignment;
 import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Service class for managing assignment-related business logic.
@@ -48,6 +51,12 @@ public class AssignmentService {
      * @return the created assignment
      */
     public Assignment createAssignment(User teacher, String title, String description, String className, LocalDateTime deadline, String googleFormUrl, Integer points) {
+        if (className == null
+                || !teacherClassNames(teacher.getId()).stream()
+                        .map(c -> c == null ? "" : c)
+                        .anyMatch(c -> c.trim().equalsIgnoreCase(className.trim()))) {
+            throw new IllegalArgumentException("You can only create assignments for classes that you teach.");
+        }
         Assignment assignment = new Assignment();
         assignment.setTeacher(teacher);
         assignment.setTitle(title);
@@ -64,9 +73,9 @@ public class AssignmentService {
         String jsonMessage = String.format("{\"type\":\"NEW_ASSIGNMENT\", \"id\":%d, \"title\":\"%s\", \"description\":\"%s\", \"course\":\"%s\", \"dueDate\":\"%s\", \"points\":%d}", 
             savedAssignment.getId(),
             title.replace("\"", "\\\""), 
-            description.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r"),
+            description == null ? "" : description.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r"),
             className.replace("\"", "\\\""), 
-            deadline.toString(),
+            deadline != null ? deadline.toString() : "",
             savedAssignment.getPoints()
         );
         org.example.esubmission.websocket.AssignmentWebSocket.broadcastToClass(teacher.getId(), className, jsonMessage);
@@ -102,6 +111,19 @@ public class AssignmentService {
      */
     public List<Submission> getAssignmentSubmissions(Long assignmentId) {
         return submissionDAO.findByAssignmentId(assignmentId);
+    }
+
+    /**
+     * Returns the union of classes the teacher owns through student enrollments
+     * and through explicit teacher-class assignments.
+     */
+    private Set<String> teacherClassNames(Long teacherId) {
+        Set<String> names = new LinkedHashSet<>();
+        List<String> fromEnrollments = studentClassDAO.findClassesByTeacher(teacherId);
+        List<String> fromAssignments = new TeacherClassDAO().findByTeacherId(teacherId);
+        if (fromEnrollments != null) names.addAll(fromEnrollments);
+        if (fromAssignments != null) names.addAll(fromAssignments);
+        return names;
     }
 
     /**

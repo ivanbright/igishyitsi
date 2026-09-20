@@ -5,7 +5,9 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import org.example.esubmission.model.User;
 import org.example.esubmission.util.JwtUtil;
+import org.example.esubmission.util.SecurityUtil;
 
 import java.io.IOException;
 
@@ -56,7 +58,14 @@ public class AuthenticationFilter implements Filter {
         HttpSession session = httpRequest.getSession(false);
         
         if (session != null && session.getAttribute("user") != null) {
-            // User is logged in, proceed
+            User user = (User) session.getAttribute("user");
+            if (user.isDisabled()) {
+                session.invalidate();
+                httpResponse.sendRedirect(httpRequest.getContextPath() + "/login?message=account_disabled");
+                return;
+            }
+            // Establish a CSRF token for admin state-changing endpoints.
+            SecurityUtil.getCsrfToken(httpRequest);
             chain.doFilter(request, response);
         } else {
             // No valid session, redirect to login

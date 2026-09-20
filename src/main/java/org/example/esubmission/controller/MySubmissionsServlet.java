@@ -5,41 +5,23 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
-import org.example.esubmission.dao.SubmissionDAO;
-import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
 
 import java.io.IOException;
-import java.util.List;
 
 /**
- * Servlet responsible for displaying a student's own submissions.
+ * Servlet responsible for redirecting to the student dashboard's submissions section.
  * <p>
- * This servlet retrieves all assignments submitted by the logged-in student
- * and forwards the data to {@code mySubmissions.jsp}.
+ * This endpoint deep-links to the submissions section of the student dashboard, which
+ * is the single source of truth for submission data.
  * </p>
  *
  * @author Mugisha Ivan Bright
  */
 public class MySubmissionsServlet extends HttpServlet {
-    
-    private SubmissionDAO submissionDAO;
 
     /**
-     * Initializes the servlet and its DAO.
-     *
-     * @throws ServletException if initialization fails
-     */
-    @Override
-    public void init() throws ServletException {
-        this.submissionDAO = new SubmissionDAO();
-    }
-
-    /**
-     * Handles GET requests to display the student's submissions.
-     * <p>
-     * Retrieves submissions from the database and forwards to {@code mySubmissions.jsp}.
-     * </p>
+     * Handles GET requests by redirecting to the submissions section of the student dashboard.
      *
      * @param request  the HttpServletRequest
      * @param response the HttpServletResponse
@@ -58,15 +40,7 @@ public class MySubmissionsServlet extends HttpServlet {
             return;
         }
 
-        try {
-            List<Submission> submissions = submissionDAO.findByStudentId(student.getId());
-            request.setAttribute("submissions", submissions);
-            request.getRequestDispatcher("/mySubmissions.jsp").forward(request, response);
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            response.sendError(500, "Error loading submissions");
-        }
+        response.sendRedirect(request.getContextPath() + "/student/dashboard?section=submissions");
     }
 
     /**

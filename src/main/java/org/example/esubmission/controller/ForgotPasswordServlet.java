@@ -37,14 +37,26 @@ public class ForgotPasswordServlet extends HttpServlet {
 
         try {
             String token = userService.initiatePasswordReset(email.trim());
-            emailService.sendPasswordResetEmail(email.trim(), token);
-            request.setAttribute("success", "Password reset link sent! Please check your email.");
-            request.getRequestDispatcher("/WEB-INF/pages/forgotPassword.jsp").forward(request, response);
+            emailService.sendPasswordResetEmail(email.trim(), token, baseUrl(request));
+            request.getSession().setAttribute("resetEmail", email.trim());
+            response.sendRedirect(request.getContextPath() + "/verifyReset");
         } catch (Exception e) {
             // We don't want to reveal if email exists or not for security, 
             // but for this project we'll show the error if it's explicitly about user not found
             request.setAttribute("success", "If an account exists with this email, a reset link will be sent.");
             request.getRequestDispatcher("/WEB-INF/pages/forgotPassword.jsp").forward(request, response);
         }
+    }
+
+    private String baseUrl(HttpServletRequest request) {
+        String scheme = request.getScheme();
+        int port = request.getServerPort();
+        boolean defaultPort = (scheme.equals("http") && port == 80)
+            || (scheme.equals("https") && port == 443);
+        String base = scheme + "://" + request.getServerName();
+        if (!defaultPort) {
+            base += ":" + port;
+        }
+        return base + request.getContextPath();
     }
 }

@@ -4,41 +4,70 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import org.example.esubmission.dao.UserDAO;
+import org.example.esubmission.model.User;
 
 import java.io.IOException;
 
 /**
  * Servlet responsible for handling the user onboarding process.
  * <p>
- * This servlet forwards the user to the onboarding page where they can
- * complete their profile or get started with the system.
+ * This servlet lets a newly signed-up user complete their profile
+ * (name / phone) before entering the dashboard.
  * </p>
- *
- * @author Mugisha Ivan Bright
  */
 public class OnBoardingServlet extends HttpServlet {
 
-    /**
-     * Handles POST requests for onboarding actions.
-     *
-     * @param request  the HttpServletRequest
-     * @param response the HttpServletResponse
-     * @throws ServletException if a servlet error occurs
-     * @throws IOException      if an I/O error occurs
-     */
-    @Override
-    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {}
+    private UserDAO userDAO;
 
-    /**
-     * Handles GET requests to display the onboarding page.
-     *
-     * @param req  the HttpServletRequest
-     * @param resp the HttpServletResponse
-     * @throws ServletException if a servlet error occurs
-     * @throws IOException      if an I/O error occurs
-     */
+    @Override
+    public void init() throws ServletException {
+        this.userDAO = new UserDAO();
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        String action = request.getParameter("action");
+        if (!"updateProfile".equals(action)) {
+            response.sendRedirect(request.getContextPath() + "/onboarding");
+            return;
+        }
+
+        HttpSession session = request.getSession();
+        User user = (User) session.getAttribute("user");
+        if (user == null) {
+            response.sendRedirect(request.getContextPath() + "/login");
+            return;
+        }
+
+        String name = request.getParameter("name");
+        String phone = request.getParameter("phone");
+        if (name == null || name.trim().isEmpty()) {
+            request.setAttribute("error", "Name is required");
+            request.getRequestDispatcher("/WEB-INF/pages/onboarding.jsp").forward(request, response);
+            return;
+        }
+
+        user.setName(name.trim());
+        user.setPhone(phone != null ? phone.trim() : null);
+        userDAO.save(user);
+        session.setAttribute("user", user);
+
+        switch (user.getRole()) {
+            case ADMIN:
+                response.sendRedirect(request.getContextPath() + "/admin/dashboard");
+                break;
+            case TEACHER:
+                response.sendRedirect(request.getContextPath() + "/teacher/dashboard");
+                break;
+            default:
+                response.sendRedirect(request.getContextPath() + "/student/dashboard");
+        }
+    }
+
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        req.getRequestDispatcher("onboarding.jsp").forward(req, resp);
+        req.getRequestDispatcher("/WEB-INF/pages/onboarding.jsp").forward(req, resp);
     }
 }

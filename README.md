@@ -35,7 +35,7 @@ A premium dark-themed e-submission system built with Java, JSP, and Hibernate.
 ```bash
 # Clean and package
 mvn clean package
-
+powershell -ExecutionPolicy Bypass -File .\run.ps1
 # Deploy the generated WAR file (target/furnitBackend.war) to your Tomcat webapps directory.
 ```
 

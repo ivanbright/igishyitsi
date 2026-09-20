@@ -40,6 +40,7 @@ public class InputSanitizationFilter implements Filter {
         @Override
         public String getParameter(String name) {
             String value = super.getParameter(name);
+            if (isSensitive(name)) return value;
             return SecurityUtil.sanitizeInput(value);
         }
 
@@ -47,6 +48,7 @@ public class InputSanitizationFilter implements Filter {
         public String[] getParameterValues(String name) {
             String[] values = super.getParameterValues(name);
             if (values == null) return null;
+            if (isSensitive(name)) return values;
 
             String[] sanitizedValues = new String[values.length];
             for (int i = 0; i < values.length; i++) {
@@ -63,6 +65,10 @@ public class InputSanitizationFilter implements Filter {
 
                 for (Map.Entry<String, String[]> entry : rawMap.entrySet()) {
                     String[] values = entry.getValue();
+                    if (isSensitive(entry.getKey())) {
+                        newMap.put(entry.getKey(), values);
+                        continue;
+                    }
                     String[] sanitizedValues = new String[values.length];
                     for (int i = 0; i < values.length; i++) {
                         sanitizedValues[i] = SecurityUtil.sanitizeInput(values[i]);
@@ -72,6 +78,13 @@ public class InputSanitizationFilter implements Filter {
                 sanitizedParameters = Collections.unmodifiableMap(newMap);
             }
             return sanitizedParameters;
+        }
+
+        /**
+         * Sensitive parameters such as passwords must never be altered.
+         */
+        private boolean isSensitive(String name) {
+            return name != null && (name.toLowerCase().contains("password"));
         }
     }
 }

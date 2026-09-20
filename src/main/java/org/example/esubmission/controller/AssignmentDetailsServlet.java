@@ -72,6 +72,6 @@ public class AssignmentDetailsServlet extends HttpServlet {
         req.setAttribute("submissions", submissions);
         req.setAttribute("missingStudents", missingStudents);
 
-        req.getRequestDispatcher("/assignmentDetails.jsp").forward(req, resp);
+        req.getRequestDispatcher("/WEB-INF/pages/assignmentDetails.jsp").forward(req, resp);
     }
 }

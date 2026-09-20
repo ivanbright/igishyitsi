@@ -99,6 +99,15 @@ public class Submission {
     @Column(columnDefinition = "TEXT")
     private String feedback;
 
+    /**
+     * Status of the submission.
+     * <p>
+     * Tracks the lifecycle state: ON_TIME, LATE, GRADED.
+     * </p>
+     */
+    @Column(length = 20)
+    private String status = "ON_TIME";
+
     // ------------------- Getters and Setters -------------------
 
     /**
@@ -226,4 +235,36 @@ public class Submission {
      * @param feedback the feedback to set
      */
     public void setFeedback(String feedback) { this.feedback = feedback; }
+
+    /**
+     * Returns the status of the submission.
+     *
+     * @return the status (ON_TIME, LATE, GRADED)
+     */
+    public String getStatus() { return status; }
+
+    /**
+     * Sets the status of the submission.
+     *
+     * @param status the status to set
+     */
+    public void setStatus(String status) { this.status = status; }
+
+    /**
+     * Returns a human-readable formatted submission timestamp.
+     */
+    public String getFormattedSubmittedAt() {
+        if (submittedAt == null) return "";
+        return submittedAt.format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, yyyy HH:mm"));
+    }
+
+    /**
+     * Returns the percentage score (grade / assignment max points * 100).
+     */
+    public Double getPercentage() {
+        if (grade == null || assignment == null || assignment.getPoints() == null || assignment.getPoints() == 0) {
+            return null;
+        }
+        return (grade * 100.0) / assignment.getPoints();
+    }
 }

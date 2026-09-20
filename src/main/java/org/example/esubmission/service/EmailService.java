@@ -9,22 +9,44 @@ import java.util.Properties;
 
 /**
  * Service responsible for sending emails, specifically for 2FA verification.
+ * <p>
+ * When SMTP credentials are not configured, this service gracefully falls back
+ * to logging the verification code / reset link to the server console so that
+ * developers are never blocked from using the application locally.
+ * </p>
  */
 public class EmailService {
 
-    // SMTP Configuration (Should be moved to environment variables/config file in production)
+    // SMTP Configuration
     private static final String SMTP_HOST = "smtp.gmail.com";
     private static final String SMTP_PORT = "587";
     private static final String SMTP_USER = ConfigUtil.getProperty("smtp.user");
     private static final String SMTP_PASS = ConfigUtil.getProperty("smtp.pass");
 
     /**
+     * Whether SMTP is properly configured for real email delivery.
+     */
+    private static boolean isSmtpConfigured() {
+        return SMTP_USER != null && !SMTP_USER.trim().isEmpty()
+            && SMTP_PASS != null && !SMTP_PASS.trim().isEmpty();
+    }
+
+    /**
      * Sends a verification email with a 6-digit code.
+     * Falls back to console logging when SMTP is not configured.
      *
      * @param toEmail target email address
      * @param code    verification code to send
      */
     public void sendVerificationEmail(String toEmail, String code) {
+        if (!isSmtpConfigured()) {
+            System.out.println("========================================");
+            System.out.println("[DEV MODE] SMTP not configured.");
+            System.out.println("[DEV MODE] Verification code for " + toEmail + ": " + code);
+            System.out.println("========================================");
+            return;
+        }
+
         Properties props = new Properties();
         props.put("mail.smtp.auth", "true");
         props.put("mail.smtp.starttls.enable", "true");
@@ -56,18 +78,28 @@ public class EmailService {
             System.out.println("Verification email sent to " + toEmail);
 
         } catch (MessagingException e) {
-            System.err.println("Failed to send email: " + e.getMessage());
-            // In a real scenario, we might want to throw a custom exception
+            System.err.println("Failed to send verification email to " + toEmail + ": " + e.getMessage());
+            System.out.println("[FALLBACK] Verification code for " + toEmail + ": " + code);
         }
     }
 
     /**
      * Sends a password reset email with a link.
+     * Falls back to console logging when SMTP is not configured.
      *
-     * @param toEmail target email address
-     * @param token   reset token
+     * @param toEmail   target email address
+     * @param token     reset token
+     * @param baseUrl   the base URL of the application (e.g., http://localhost:8080/igishyitsi)
      */
-    public void sendPasswordResetEmail(String toEmail, String token) {
+    public void sendPasswordResetEmail(String toEmail, String token, String baseUrl) {
+        if (!isSmtpConfigured()) {
+            System.out.println("========================================");
+            System.out.println("[DEV MODE] SMTP not configured.");
+            System.out.println("[DEV MODE] Password reset OTP for " + toEmail + ": " + token);
+            System.out.println("========================================");
+            return;
+        }
+
         Properties props = new Properties();
         props.put("mail.smtp.auth", "true");
         props.put("mail.smtp.starttls.enable", "true");
@@ -87,12 +119,10 @@ public class EmailService {
             message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail));
             message.setSubject("Igishyitsi - Reset Your Password");
             
-            String resetLink = "http://localhost:8080/furnitBackend/resetPassword?token=" + token;
-            
             String htmlContent = "<h1>Password Reset Request</h1>" +
-                                 "<p>You requested to reset your password. Click the link below to set a new password:</p>" +
-                                 "<p><a href='" + resetLink + "' style='display: inline-block; padding: 10px 20px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px;'>Reset Password</a></p>" +
-                                 "<p>This link will expire in 1 hour.</p>" +
+                                 "<p>You requested to reset your password. Here is your 6-digit OTP code:</p>" +
+                                 "<h2 style='color: #3b82f6; letter-spacing: 5px;'>" + token + "</h2>" +
+                                 "<p>This code will expire in 1 hour.</p>" +
                                  "<p>If you did not request this, please ignore this email.</p>";
             
             message.setContent(htmlContent, "text/html");
@@ -101,7 +131,15 @@ public class EmailService {
             System.out.println("Password reset email sent to " + toEmail);
 
         } catch (MessagingException e) {
-            System.err.println("Failed to send email: " + e.getMessage());
+            System.err.println("Failed to send password reset email to " + toEmail + ": " + e.getMessage());
+            System.out.println("[FALLBACK] Reset OTP for " + toEmail + ": " + token);
         }
+    }
+
+    /**
+     * Legacy compatibility — calls the 3-arg version with a default localhost URL.
+     */
+    public void sendPasswordResetEmail(String toEmail, String token) {
+        sendPasswordResetEmail(toEmail, token, ConfigUtil.getProperty("app.baseUrl", "http://localhost:8080/igishyitsi"));
     }
 }

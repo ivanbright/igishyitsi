@@ -60,6 +60,12 @@ public class RoleAuthorizationFilter implements Filter {
         
         User user = (User) session.getAttribute("user");
         UserRole userRole = user.getRole();
+
+        // PARENT accounts can view their own profile but no dashboards yet
+        if (path.equals("/profile") && userRole == UserRole.PARENT) {
+            chain.doFilter(request, response);
+            return;
+        }
         
         // Check role-based access
         if (path.contains("/admin/") && userRole != UserRole.ADMIN) {

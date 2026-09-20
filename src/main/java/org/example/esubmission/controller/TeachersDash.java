@@ -8,8 +8,10 @@ import jakarta.servlet.http.HttpSession;
 import org.example.esubmission.dao.AssignmentDAO;
 import org.example.esubmission.dao.StudentClassDAO;
 import org.example.esubmission.dao.SubmissionDAO;
+import org.example.esubmission.dao.TeacherClassDAO;
 import org.example.esubmission.model.Assignment;
 import org.example.esubmission.model.StudentClass;
+import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
 import org.example.esubmission.service.AssignmentService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -18,10 +20,12 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Servlet responsible for rendering the teacher dashboard.
@@ -85,8 +89,13 @@ public class TeachersDash extends HttpServlet {
             List<Assignment> assignments = assignmentService.getTeacherAssignments(teacher.getId());
             req.setAttribute("assignments", assignments);
 
-            // Get teacher's classes
-            List<String> classes = studentClassDAO.findClassesByTeacher(teacher.getId());
+            // Get teacher's classes (union of enrollment-derived and explicit assignments)
+            Set<String> classNames = new LinkedHashSet<>();
+            List<String> fromEnrollments = studentClassDAO.findClassesByTeacher(teacher.getId());
+            List<String> fromAssignments = new TeacherClassDAO().findByTeacherId(teacher.getId());
+            if (fromEnrollments != null) classNames.addAll(fromEnrollments);
+            if (fromAssignments != null) classNames.addAll(fromAssignments);
+            List<String> classes = new ArrayList<>(classNames);
             req.setAttribute("classes", classes);
 
             // Get Stats
@@ -102,9 +111,8 @@ public class TeachersDash extends HttpServlet {
             List<StudentClass> enrollments = studentClassDAO.findEnrollmentsByTeacher(teacher.getId());
             req.setAttribute("enrollments", enrollments);
 
-            // Get recent submissions for activity feed
-            List<org.example.esubmission.model.Submission> recentSubmissions = new SubmissionDAO().findAll(); // Or filter by teacher's assignments
-            // In a real app we'd filter or join, but for now we'll take all to show activity
+            // Get recent submissions for activity feed (only this teacher's assignments)
+            List<Submission> recentSubmissions = new SubmissionDAO().findByTeacherId(teacher.getId());
             req.setAttribute("recentSubmissions", recentSubmissions);
 
             // Serialize all data to JSON for frontend
@@ -158,14 +166,17 @@ public class TeachersDash extends HttpServlet {
 
             try {
                 Integer points = (pointsStr != null && !pointsStr.isEmpty()) ? Integer.parseInt(pointsStr) : 100;
-                LocalDateTime deadline;
-                // Accept both date (yyyy-MM-dd) and datetime-local (yyyy-MM-ddTHH:mm)
-                if (deadlineStr.contains("T")) {
-                    deadline = LocalDateTime.parse(deadlineStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-                } else {
-                    deadline = java.time.LocalDate.parse(deadlineStr).atTime(23, 59);
+                LocalDateTime deadline = null;
+                // Accept both date (yyyy-MM-dd) and datetime-local (yyyy-MM-ddTHH:mm); deadline is optional
+                if (deadlineStr != null && !deadlineStr.trim().isEmpty()) {
+                    if (deadlineStr.contains("T")) {
+                        deadline = LocalDateTime.parse(deadlineStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                    } else {
+                        deadline = java.time.LocalDate.parse(deadlineStr).atTime(23, 59);
+                    }
                 }
                 assignmentService.createAssignment(teacher, title, description, className, deadline, googleFormUrl, points);
+                session.setAttribute("message", "Assignment \"" + title + "\" created successfully.");
                 resp.sendRedirect(req.getContextPath() + "/teacher/dashboard");
             } catch (Exception e) {
                 e.printStackTrace();

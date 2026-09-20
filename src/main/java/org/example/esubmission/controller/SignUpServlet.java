@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.example.esubmission.dao.UserDAO;
 import org.example.esubmission.model.User;
+import org.example.esubmission.service.EmailService;
 import org.example.esubmission.service.UserService;
 
 import java.io.IOException;
@@ -23,6 +24,7 @@ import java.io.IOException;
 public class SignUpServlet extends HttpServlet {
 
     private UserService userService;
+    private EmailService emailService;
     /**
      * Initializes the servlet and its service.
      *
@@ -31,6 +33,7 @@ public class SignUpServlet extends HttpServlet {
     @Override
     public void init() throws ServletException {
         this.userService = new UserService(new UserDAO());
+        this.emailService = new EmailService();
     }
 
     /**
@@ -95,8 +98,14 @@ public class SignUpServlet extends HttpServlet {
 
         try {
             User user = userService.createUser(name.trim(), email.trim(), phone != null ? phone.trim() : null, password);
-            request.setAttribute("success", "Account created successfully! Please login to continue.");
-            request.getRequestDispatcher("/WEB-INF/pages/login.jsp").forward(request, response);
+
+            // Account starts unverified: generate a code, email it, then take the user
+            // through the /verify flow before their first login.
+            String code = userService.generateVerificationCode(user);
+            emailService.sendVerificationEmail(user.getEmail(), code);
+
+            session.setAttribute("pendingUser", user);
+            response.sendRedirect(request.getContextPath() + "/verify");
         } catch (IllegalArgumentException e) {
             request.setAttribute("error", e.getMessage());
         request.getRequestDispatcher("/WEB-INF/pages/signup.jsp").forward(request, response);

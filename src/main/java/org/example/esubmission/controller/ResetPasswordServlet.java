@@ -19,9 +19,9 @@ public class ResetPasswordServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-        String token = request.getParameter("token");
+        String token = (String) request.getSession().getAttribute("resetToken");
         if (token == null || token.isEmpty()) {
-            response.sendRedirect(request.getContextPath() + "/login");
+            response.sendRedirect(request.getContextPath() + "/forgotPassword");
             return;
         }
         request.getRequestDispatcher("/WEB-INF/pages/resetPassword.jsp").forward(request, response);
@@ -29,7 +29,11 @@ public class ResetPasswordServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-        String token = request.getParameter("token");
+        String token = (String) request.getSession().getAttribute("resetToken");
+        if (token == null || token.isEmpty()) {
+            response.sendRedirect(request.getContextPath() + "/forgotPassword");
+            return;
+        }
         String password = request.getParameter("password");
         String confirmPassword = request.getParameter("confirmPassword");
 
@@ -47,6 +51,8 @@ public class ResetPasswordServlet extends HttpServlet {
 
         try {
             userService.resetPassword(token, password);
+            request.getSession().removeAttribute("resetToken");
+            request.getSession().removeAttribute("resetEmail");
             request.getSession().setAttribute("success", "Password reset successful! Please login with your new password.");
             response.sendRedirect(request.getContextPath() + "/login");
         } catch (IllegalArgumentException e) {

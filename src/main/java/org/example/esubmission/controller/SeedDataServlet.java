@@ -47,6 +47,13 @@ public class SeedDataServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        User sessionUser = (User) req.getSession(false) != null
+                ? (User) req.getSession(false).getAttribute("user") : null;
+        if (sessionUser == null || sessionUser.getRole() != UserRole.ADMIN) {
+            resp.sendError(HttpServletResponse.SC_FORBIDDEN, "Admin access required");
+            return;
+        }
+
         resp.setContentType("text/html;charset=UTF-8");
         PrintWriter out = resp.getWriter();
 
@@ -58,9 +65,22 @@ public class SeedDataServlet extends HttpServlet {
 
         try {
             // --- Check if already seeded ---
+            User existingAdmin = userDAO.findByEmail("admin@igishyitsi.com");
+            if (existingAdmin == null) {
+                User admin = new User();
+                admin.setName("System Administrator");
+                admin.setEmail("admin@igishyitsi.com");
+                admin.setPassword(PasswordUtils.hashPassword("Admin@123"));
+                admin.setRole(UserRole.ADMIN);
+                admin.setEmailVerified(true);
+                userDAO.save(admin);
+                out.println("<span class='ok'>✔ Admin created:</span> admin@igishyitsi.com — Admin@123");
+            }
+
             User existingTeacher = userDAO.findByEmail("teacher@igishyitsi.com");
             if (existingTeacher != null) {
                 out.println("<span class='warn'>⚠ Seed data already exists. Skipping.</span>");
+                out.println("Admin: admin@igishyitsi.com / Admin@123");
                 out.println("Teacher: teacher@igishyitsi.com / Teacher@123");
                 out.println("Student 1: alice@igishyitsi.com / Student@123");
                 out.println("Student 2: bob@igishyitsi.com / Student@123");

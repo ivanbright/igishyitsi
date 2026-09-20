@@ -4,11 +4,13 @@ import org.example.esubmission.util.Gender;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.time.Period;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class PersonTest {
-    final static Person person = new Person(1,"Mugisha","Ivan Bright", Gender.MALE, LocalDate.of(2005,06,12));
+    // DOB pinned relative to "now" so age assertions never drift with the calendar
+    final static Person person = new Person(1,"Mugisha","Ivan Bright", Gender.MALE, LocalDate.now().minusYears(20).withDayOfYear(1));
     @Test
     void getId() {
         assertEquals(1,person.getId());
@@ -61,7 +63,7 @@ class PersonTest {
     @Test
     void setDob() {
         person.setDob(LocalDate.of(2020,11,20));
-        assertEquals(5, person.getAge());
+        assertEquals(Period.between(LocalDate.of(2020,11,20), LocalDate.now()).getYears(), person.getAge());
     }
 
     @Test

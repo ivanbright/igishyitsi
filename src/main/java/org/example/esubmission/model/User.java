@@ -94,6 +94,16 @@ public class User {
     private java.time.LocalDateTime resetTokenExpiry;
 
     /**
+     * Indicates whether the admin has disabled this account.
+     * <p>
+     * Disabled accounts are rejected at login and are logged out of any
+     * active session by the authentication filter.
+     * </p>
+     */
+    @Column(name = "is_disabled", nullable = false)
+    private boolean disabled = false;
+
+    /**
      * Returns the unique identifier of the user.
      *
      * @return the user ID
@@ -261,5 +271,13 @@ public class User {
 
     public void setResetTokenExpiry(java.time.LocalDateTime resetTokenExpiry) {
         this.resetTokenExpiry = resetTokenExpiry;
+    }
+
+    public boolean isDisabled() {
+        return disabled;
+    }
+
+    public void setDisabled(boolean disabled) {
+        this.disabled = disabled;
     }
 }

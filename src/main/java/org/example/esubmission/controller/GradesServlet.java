@@ -5,43 +5,23 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
-import org.example.esubmission.dao.SubmissionDAO;
-import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
 
 import java.io.IOException;
-import java.util.List;
-import java.util.stream.Collectors;
 
 /**
- * Servlet responsible for displaying student grades and statistics.
+ * Servlet responsible for redirecting to the student dashboard's grades section.
  * <p>
- * This servlet retrieves all submissions for the logged-in student,
- * filters for graded ones, and computes statistics such as average, 
- * highest, and lowest grades.
+ * This endpoint deep-links to the grades section of the student dashboard, which
+ * is the single source of truth for grade data.
  * </p>
  *
  * @author Mugisha Ivan Bright
  */
 public class GradesServlet extends HttpServlet {
-    
-    private SubmissionDAO submissionDAO;
 
     /**
-     * Initializes the servlet and its DAO.
-     *
-     * @throws ServletException if initialization fails
-     */
-    @Override
-    public void init() throws ServletException {
-        this.submissionDAO = new SubmissionDAO();
-    }
-
-    /**
-     * Handles GET requests to display student grades.
-     * <p>
-     * Retrieves submissions, calculates statistics, and forwards to {@code grades.jsp}.
-     * </p>
+     * Handles GET requests by redirecting to the grades section of the student dashboard.
      *
      * @param request  the HttpServletRequest
      * @param response the HttpServletResponse
@@ -60,42 +40,7 @@ public class GradesServlet extends HttpServlet {
             return;
         }
 
-        try {
-            List<Submission> allSubmissions = submissionDAO.findByStudentId(student.getId());
-            
-            // Filter only graded submissions
-            List<Submission> gradedSubmissions = allSubmissions.stream()
-                .filter(s -> s.getGrade() != null)
-                .collect(Collectors.toList());
-            
-            // Calculate statistics
-            double averageGrade = gradedSubmissions.stream()
-                .mapToInt(Submission::getGrade)
-                .average()
-                .orElse(0.0);
-            
-            int highestGrade = gradedSubmissions.stream()
-                .mapToInt(Submission::getGrade)
-                .max()
-                .orElse(0);
-            
-            int lowestGrade = gradedSubmissions.stream()
-                .mapToInt(Submission::getGrade)
-                .min()
-                .orElse(0);
-            
-            request.setAttribute("allSubmissions", allSubmissions);
-            request.setAttribute("gradedSubmissions", gradedSubmissions);
-            request.setAttribute("averageGrade", averageGrade);
-            request.setAttribute("highestGrade", highestGrade);
-            request.setAttribute("lowestGrade", lowestGrade);
-            
-            request.getRequestDispatcher("/grades.jsp").forward(request, response);
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            response.sendError(500, "Error loading grades");
-        }
+        response.sendRedirect(request.getContextPath() + "/student/dashboard?section=grades");
     }
 
     /**

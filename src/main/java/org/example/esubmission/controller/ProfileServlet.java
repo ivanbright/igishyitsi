@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.example.esubmission.dao.SubmissionDAO;
+import org.example.esubmission.dao.UserDAO;
 import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
 
@@ -25,6 +26,7 @@ import java.util.List;
 public class ProfileServlet extends HttpServlet {
     
     private SubmissionDAO submissionDAO;
+    private UserDAO userDAO;
 
     /**
      * Initializes the servlet and its DAO.
@@ -34,6 +36,7 @@ public class ProfileServlet extends HttpServlet {
     @Override
     public void init() throws ServletException {
         this.submissionDAO = new SubmissionDAO();
+        this.userDAO = new UserDAO();
     }
 
     /**
@@ -80,7 +83,7 @@ public class ProfileServlet extends HttpServlet {
             request.setAttribute("gradedSubmissions", gradedSubmissions);
             request.setAttribute("averageGrade", averageGrade);
             
-            request.getRequestDispatcher("/profile.jsp").forward(request, response);
+            request.getRequestDispatcher("/WEB-INF/pages/profile.jsp").forward(request, response);
             
         } catch (Exception e) {
             e.printStackTrace();
@@ -119,10 +122,11 @@ public class ProfileServlet extends HttpServlet {
                 String name = request.getParameter("name");
                 String phone = request.getParameter("phone");
                 
-                // Update user information (you would need to implement UserDAO for this)
+                // Update user information
                 student.setName(name);
                 student.setPhone(phone);
-                
+                userDAO.save(student);
+
                 // Update session
                 session.setAttribute("user", student);
                 

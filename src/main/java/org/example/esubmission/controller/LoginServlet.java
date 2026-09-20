@@ -81,7 +81,14 @@ public class LoginServlet extends HttpServlet {
         try {
             // Authenticate user
             User user = userService.authenticateUser(email.trim(), password);
-            
+
+            // Reject disabled accounts
+            if (user.isDisabled()) {
+                request.setAttribute("error", "Your account has been disabled. Please contact the administrator.");
+                request.getRequestDispatcher("/WEB-INF/pages/login.jsp").forward(request, response);
+                return;
+            }
+
             // Check if 2FA or Email Verification is required
             if (user.isTwoFactorEnabled() || !user.isEmailVerified()) {
                 String code = userService.generateVerificationCode(user);
@@ -109,6 +116,13 @@ public class LoginServlet extends HttpServlet {
      * Completes the login process by generating tokens and redirecting to dashboard.
      */
     public static void completeLogin(User user, HttpServletRequest request, HttpServletResponse response) throws IOException {
+        // Rotate session to prevent session fixation
+        HttpSession oldSession = request.getSession(false);
+        if (oldSession != null) {
+            oldSession.invalidate();
+        }
+        HttpSession session = request.getSession(true);
+
         String accessToken = JwtUtil.generateAccessToken(user);
         String refreshToken = JwtUtil.generateRefreshToken(user);
 
@@ -116,15 +130,18 @@ public class LoginServlet extends HttpServlet {
         accessTokenCookie.setHttpOnly(true);
         accessTokenCookie.setPath("/");
         accessTokenCookie.setMaxAge(60 * 60); // 1 hour
+        if (request.isSecure()) accessTokenCookie.setSecure(true);
+        accessTokenCookie.setAttribute("SameSite", "Lax");
         response.addCookie(accessTokenCookie);
 
         Cookie refreshTokenCookie = new Cookie("refreshToken", refreshToken);
         refreshTokenCookie.setHttpOnly(true);
         refreshTokenCookie.setPath("/");
         refreshTokenCookie.setMaxAge(60 * 60 * 24 * 7); // 7 days
+        if (request.isSecure()) refreshTokenCookie.setSecure(true);
+        refreshTokenCookie.setAttribute("SameSite", "Lax");
         response.addCookie(refreshTokenCookie);
 
-        HttpSession session = request.getSession();
         session.setAttribute("user", user);
         session.setAttribute("accessToken", accessToken);
 
@@ -139,6 +156,10 @@ public class LoginServlet extends HttpServlet {
                 break;
             case STUDENT:
                 response.sendRedirect(contextPath + "/student/dashboard");
+                break;
+            case PARENT:
+                // PARENT accounts have no dashboard yet; land them on their profile page
+                response.sendRedirect(contextPath + "/profile");
                 break;
             default:
                 response.sendRedirect(contextPath + "/");
@@ -155,6 +176,17 @@ public class LoginServlet extends HttpServlet {
      */
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        HttpSession session = request.getSession();
+        String success = (String) session.getAttribute("success");
+        if (success != null) {
+            request.setAttribute("success", success);
+            session.removeAttribute("success");
+        }
+
+        if ("account_disabled".equals(request.getParameter("message"))) {
+            request.setAttribute("error", "Your account has been disabled. Please contact the administrator.");
+        }
+
         request.getRequestDispatcher("/WEB-INF/pages/login.jsp").forward(request, response);
     }
 }

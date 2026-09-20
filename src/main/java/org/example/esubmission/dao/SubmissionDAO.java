@@ -28,7 +28,7 @@ public class SubmissionDAO {
         Transaction tx = null;
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
             tx = session.beginTransaction();
-            session.persist(submission);
+            session.merge(submission);
             tx.commit();
             return submission;
         } catch (Exception e) {
@@ -110,6 +110,21 @@ public class SubmissionDAO {
                     .setParameter("assignmentId", assignmentId)
                     .list();
             return submissions.isEmpty() ? null : submissions.get(0);
+        }
+    }
+
+    /**
+     * Retrieves all submissions for assignments belonging to a specific teacher.
+     *
+     * @param teacherId the ID of the teacher
+     * @return a list of submissions, ordered by submission date descending
+     */
+    public List<Submission> findByTeacherId(Long teacherId) {
+        try (Session session = HibernateUtil.getSessionFactory().openSession()) {
+            return session.createQuery(
+                    "FROM Submission WHERE assignment.teacher.id = :teacherId ORDER BY submittedAt DESC", Submission.class)
+                    .setParameter("teacherId", teacherId)
+                    .list();
         }
     }
 
