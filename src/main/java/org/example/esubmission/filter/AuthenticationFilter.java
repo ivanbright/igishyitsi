@@ -64,6 +64,11 @@ public class AuthenticationFilter implements Filter {
                 httpResponse.sendRedirect(httpRequest.getContextPath() + "/login?message=account_disabled");
                 return;
             }
+            // Authenticated pages embed the session CSRF token. Login rotates the
+            // session, so a cached page would present a token from a destroyed
+            // session. Disable caching for every authenticated response.
+            httpResponse.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+            httpResponse.setHeader("Pragma", "no-cache");
             // Establish a CSRF token for admin state-changing endpoints.
             SecurityUtil.getCsrfToken(httpRequest);
             chain.doFilter(request, response);

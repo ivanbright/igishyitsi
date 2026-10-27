@@ -4,23 +4,27 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.example.esubmission.dao.StudentClassDAO;
-import org.example.esubmission.model.StudentClass;
+import org.example.esubmission.dao.ClassGroupDAO;
+import org.example.esubmission.model.ClassGroup;
+import org.example.esubmission.model.User;
+import org.example.esubmission.util.SecurityUtil;
+import org.example.esubmission.util.TenantContext;
 
 import java.io.IOException;
 
 /**
  * Servlet responsible for managing classes within the system.
  * <p>
- * Currently handles requests related to class operations, primarily
- * through redirection to the admin dashboard for student-class allocation.
+ * Handles class creation for the signed-in school administrator. The class is
+ * always stamped with the active tenant from {@link TenantContext} so a class
+ * can never be created into another school.
  * </p>
  *
  * @author Mugisha Ivan Bright
  */
 public class ManageClassesServlet extends HttpServlet {
 
-    private StudentClassDAO studentClassDAO;
+    private ClassGroupDAO classGroupDAO;
 
     /**
      * Initializes the servlet and its DAO.
@@ -29,13 +33,14 @@ public class ManageClassesServlet extends HttpServlet {
      */
     @Override
     public void init() throws ServletException {
-        this.studentClassDAO = new StudentClassDAO();
+        this.classGroupDAO = new ClassGroupDAO();
     }
 
     /**
      * Handles POST requests for class management actions.
      * <p>
-     * Validates actions such as class creation and redirects as appropriate.
+     * Requires a school administrator session and a valid CSRF token before
+     * creating a class.
      * </p>
      *
      * @param req  the HttpServletRequest
@@ -45,18 +50,36 @@ public class ManageClassesServlet extends HttpServlet {
      */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        User admin = SecurityUtil.requireAdmin(req);
+        if (admin == null) {
+            resp.sendError(HttpServletResponse.SC_FORBIDDEN, "Admin access required");
+            return;
+        }
+        if (!SecurityUtil.csrfValid(req)) {
+            resp.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid CSRF token");
+            return;
+        }
+
         String action = req.getParameter("action");
-        
+
         if ("create".equals(action)) {
             String className = req.getParameter("name");
-            
-            if (className != null && !className.trim().isEmpty()) {
-                // Class creation is handled through StudentClass allocation
-                // For now, just redirect back
-                resp.sendRedirect(req.getContextPath() + "/admin/dashboard");
-            } else {
+
+            if (className == null || className.trim().isEmpty()) {
                 resp.sendRedirect(req.getContextPath() + "/admin/dashboard?error=invalid_class_name");
+                return;
             }
+
+            String trimmed = className.trim();
+            if (classGroupDAO.findByName(trimmed) != null) {
+                resp.sendRedirect(req.getContextPath() + "/admin/dashboard?error=duplicate_class_name");
+                return;
+            }
+
+            classGroupDAO.save(new ClassGroup(trimmed, req.getParameter("description")));
+            resp.sendRedirect(req.getContextPath() + "/admin/dashboard?success=class_created");
+        } else {
+            resp.sendRedirect(req.getContextPath() + "/admin/dashboard");
         }
     }
 }

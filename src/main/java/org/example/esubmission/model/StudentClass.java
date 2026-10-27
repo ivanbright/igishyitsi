@@ -24,6 +24,12 @@ public class StudentClass {
     private Long id;
 
     /**
+     * The school (tenant) this enrollment belongs to.
+     */
+    @Column(name = "school_id", nullable = false)
+    private Long schoolId;
+
+    /**
      * The student enrolled in the class.
      * <p>
      * Represents a many-to-one relationship to {@link User}.
@@ -69,6 +75,8 @@ public class StudentClass {
      * @param id the allocation ID to set
      */
     public void setId(Long id) { this.id = id; }
+    public Long getSchoolId() { return schoolId; }
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
     /**
      * Returns the student associated with this allocation.
      *

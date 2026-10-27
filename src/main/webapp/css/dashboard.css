@@ -95,6 +95,58 @@ html, body {
     color: var(--text-dark);
 }
 
+.logo-image {
+    max-height: 34px;
+    max-width: 150px;
+    object-fit: contain;
+}
+
+.school-badge {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 2px 0 0 2px;
+}
+
+.current-school {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: 12px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-color, #E2E4EB);
+    border-radius: 8px;
+    background: #F8FAFC;
+}
+
+.current-school-logo {
+    max-height: 28px;
+    max-width: 28px;
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+.current-school-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.current-school-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+}
+
+.current-school-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-dark);
+}
+
 .sidebar-toggle { display: none; background: none; border: none; color: var(--text-muted); cursor: pointer; }
 
 .sidebar-nav {
@@ -232,6 +284,14 @@ html, body {
     align-items: center;
     gap: 12px;
     cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+    padding: 4px 8px;
+    border-radius: 8px;
+}
+
+.user-profile-top:hover {
+    background: #F1F5F9;
 }
 
 .user-avatar-top {

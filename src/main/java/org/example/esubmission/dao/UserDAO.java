@@ -2,6 +2,7 @@ package org.example.esubmission.dao;
 
 import org.example.esubmission.model.User;
 import org.example.esubmission.util.HibernateUtil;
+import org.example.esubmission.util.TenantContext;
 import org.hibernate.Session;
 import org.hibernate.Transaction;
 
@@ -23,6 +24,24 @@ public class UserDAO {
      * @return the user entity, or {@code null} if not found
      */
     public User findById(long id) {
+        Long schoolId = TenantContext.requireSchoolId();
+        Session session = HibernateUtil.getSessionFactory().openSession();
+        User user = session.get(User.class, id);
+        session.close();
+        if (user == null) {
+            return null;
+        }
+        try (Session membershipSession = HibernateUtil.getSessionFactory().openSession()) {
+            Long membershipCount = membershipSession.createQuery(
+                    "SELECT COUNT(sm) FROM SchoolMembership sm WHERE sm.user.id = :userId AND sm.school.id = :schoolId", Long.class)
+                    .setParameter("userId", id)
+                    .setParameter("schoolId", schoolId)
+                    .uniqueResult();
+            return membershipCount != null && membershipCount > 0 ? user : null;
+        }
+    }
+
+    public User findByIdGlobal(long id) {
         Session session = HibernateUtil.getSessionFactory().openSession();
         User user = session.get(User.class, id);
         session.close();
@@ -45,6 +64,24 @@ public class UserDAO {
         session.close();
 
         return users.isEmpty() ? null : users.getFirst();
+    }
+
+    /**
+     * Returns the platform users who are members of the given school (via
+     * {@code school_members}); never falls back to a global "all users" snapshot.
+     *
+     * @param schoolId the school whose members are requested
+     * @return the school-scoped users (never null)
+     */
+    public List<User> findBySchoolId(Long schoolId) {
+        try (Session session = HibernateUtil.getSessionFactory().openSession()) {
+            return session.createQuery(
+                    "SELECT DISTINCT m.user FROM SchoolMembership m " +
+                    "WHERE m.school.id = :schoolId ORDER BY m.user.name",
+                    User.class)
+                    .setParameter("schoolId", schoolId)
+                    .list();
+        }
     }
 
     /**
@@ -71,10 +108,19 @@ public class UserDAO {
      * @return a list of all users
      */
     public List<User> findAll() {
+        Long schoolId = TenantContext.requireSchoolId();
         Session session = HibernateUtil.getSessionFactory().openSession();
+        List<User> users = session.createQuery(
+                "SELECT DISTINCT m.user FROM SchoolMembership m WHERE m.school.id = :schoolId ORDER BY m.user.name", User.class)
+                .setParameter("schoolId", schoolId)
+                .list();
+        session.close();
+        return users;
+    }
 
-        List<User> users = session.createQuery("FROM User", User.class).list();
-
+    public List<User> findAllGlobal() {
+        Session session = HibernateUtil.getSessionFactory().openSession();
+        List<User> users = session.createQuery("FROM User ORDER BY name", User.class).list();
         session.close();
         return users;
     }
@@ -109,17 +155,41 @@ public class UserDAO {
         }
     }
 
+     /**
+      * Deletes a user account, but only once the account has no membership in
+      * any school.
+      * <p>
+      * A user row is global while its memberships are per-school, so a user can
+      * belong to more than one school. The account is only removed when its
+      * last membership anywhere is gone; otherwise removing one school would
+      * destroy the account and orphan the other schools' memberships.
+      * </p>
+      *
+      * @param id the user id
+      */
      public void delete(long id) {
+        Long schoolId = TenantContext.requireSchoolId();
         Transaction tx = null;
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
             tx = session.beginTransaction();
             User user = session.get(User.class, id);
             if (user != null) {
-                session.remove(user);
+                Long remainingMemberships = session.createQuery(
+                        "SELECT COUNT(sm) FROM SchoolMembership sm WHERE sm.user.id = :userId", Long.class)
+                        .setParameter("userId", id)
+                        .uniqueResult();
+                if (remainingMemberships != null && remainingMemberships == 0) {
+                    session.remove(user);
+                }
             }
             tx.commit();
         } catch (Exception e) {
-            if (tx != null) tx.rollback();
+            try {
+                if (tx != null && tx.isActive()) {
+                    tx.rollback();
+                }
+            } catch (Exception ignored) {
+            }
             throw new RuntimeException("Failed to delete user", e);
         }
     }

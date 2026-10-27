@@ -3,6 +3,7 @@ package org.example.esubmission.util;
 import jakarta.servlet.http.HttpSession;
 import org.example.esubmission.dao.ClassGroupDAO;
 import org.example.esubmission.model.ClassGroup;
+import org.example.esubmission.model.School;
 import org.example.esubmission.model.Subject;
 import org.example.esubmission.model.User;
 
@@ -49,6 +50,19 @@ public final class AdminProjections {
             map.put("teacherId", s.getTeacher().getId());
             map.put("teacherName", s.getTeacher().getName());
         }
+        return map;
+    }
+
+    public static Map<String, Object> schoolBasic(School s, long memberCount) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", s.getId());
+        map.put("name", s.getName());
+        map.put("slug", s.getSlug());
+        map.put("domain", s.getDomain());
+        map.put("plan", s.getPlan());
+        map.put("active", s.isActive());
+        map.put("memberCount", memberCount);
+        map.put("createdAt", s.getCreatedAt() != null ? s.getCreatedAt().toString() : "");
         return map;
     }
 

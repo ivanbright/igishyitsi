@@ -11,6 +11,8 @@ import org.example.esubmission.model.User;
 import org.example.esubmission.util.AdminProjections;
 import org.example.esubmission.util.JsonUtil;
 import org.example.esubmission.util.SecurityUtil;
+import org.example.esubmission.util.TenantContext;
+import org.example.esubmission.util.TenantView;
 import org.example.esubmission.util.UserRole;
 
 import java.io.IOException;
@@ -57,8 +59,21 @@ public class AdminDash extends HttpServlet {
             return;
         }
 
+        response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+        response.setHeader("Pragma", "no-cache");
+
         try {
-            List<User> allUsers = userDAO.findAll();
+            Long schoolId = TenantContext.getSchoolId();
+            if (schoolId == null) {
+                User viewer = SecurityUtil.requireAdmin(request);
+                if (viewer != null && viewer.getRole() == UserRole.SUPER_ADMIN) {
+                    response.sendRedirect(request.getContextPath() + "/super/dashboard?message=platform_scope");
+                    return;
+                }
+                response.sendError(HttpServletResponse.SC_FORBIDDEN, "No school selected for this account");
+                return;
+            }
+            List<User> allUsers = userDAO.findBySchoolId(schoolId);
             List<Assignment> assignments = assignmentDAO.findAll();
             List<Submission> allSubmissions = submissionDAO.findAll();
 
@@ -145,8 +160,24 @@ public class AdminDash extends HttpServlet {
             realData.put("recentUsers", recentUsers);
             realData.put("currentUser", AdminProjections.userBasic(SecurityUtil.requireAdmin(request)));
             realData.put("csrfToken", SecurityUtil.getCsrfToken(request));
+            org.example.esubmission.model.School currentSchool = TenantView.apply(request);
+            if (currentSchool != null) {
+                Map<String, Object> schoolMap = new HashMap<>();
+                schoolMap.put("id", currentSchool.getId());
+                schoolMap.put("name", currentSchool.getName());
+                schoolMap.put("slug", currentSchool.getSlug());
+                schoolMap.put("domain", currentSchool.getDomain());
+                schoolMap.put("address", currentSchool.getAddress());
+                schoolMap.put("phone", currentSchool.getPhone());
+                schoolMap.put("email", currentSchool.getEmail());
+                schoolMap.put("logoUrl", currentSchool.getLogoUrl());
+                schoolMap.put("description", currentSchool.getDescription());
+                schoolMap.put("plan", currentSchool.getPlan());
+                realData.put("school", schoolMap);
+            }
+        request.setAttribute("csrfToken", SecurityUtil.getCsrfToken(request));
 
-            request.setAttribute("realData", JsonUtil.MAPPER.writeValueAsString(realData));
+            request.setAttribute("realData", JsonUtil.forScriptEmbedding(JsonUtil.MAPPER.writeValueAsString(realData)));
             request.getRequestDispatcher("/WEB-INF/pages/schoolAdmin.jsp").forward(request, response);
         } catch (Exception e) {
             e.printStackTrace();

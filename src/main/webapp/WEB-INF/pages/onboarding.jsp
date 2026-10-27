@@ -35,8 +35,9 @@
             <div class="msg error">${error}</div>
         </c:if>
 
-        <form action="${pageContext.request.contextPath}/onboarding" method="POST">
-            <input type="hidden" name="action" value="updateProfile">
+          <form action="${pageContext.request.contextPath}/onboarding" method="POST">
+              <input type="hidden" name="csrfToken" value="${csrfToken}">
+              <input type="hidden" name="action" value="updateProfile">
             <div class="field">
                 <label>Full Name</label>
                 <input type="text" name="name" value="${user.name}" required>

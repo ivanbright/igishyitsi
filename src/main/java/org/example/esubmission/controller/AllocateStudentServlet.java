@@ -8,6 +8,8 @@ import org.example.esubmission.dao.StudentClassDAO;
 import org.example.esubmission.dao.UserDAO;
 import org.example.esubmission.model.StudentClass;
 import org.example.esubmission.model.User;
+import org.example.esubmission.util.SecurityUtil;
+import org.example.esubmission.util.UserRole;
 
 import java.io.IOException;
 
@@ -74,6 +76,16 @@ public class AllocateStudentServlet extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
+        User admin = SecurityUtil.requireAdmin(req);
+        if (admin == null) {
+            resp.sendError(HttpServletResponse.SC_FORBIDDEN, "Admin access required");
+            return;
+        }
+        if (!SecurityUtil.csrfValid(req)) {
+            resp.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid CSRF token");
+            return;
+        }
+
         try {
             Long studentId = Long.parseLong(req.getParameter("studentId"));
             Long teacherId = Long.parseLong(req.getParameter("teacherId"));

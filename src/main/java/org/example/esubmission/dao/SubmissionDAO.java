@@ -2,6 +2,7 @@ package org.example.esubmission.dao;
 
 import org.example.esubmission.model.Submission;
 import org.example.esubmission.util.HibernateUtil;
+import org.example.esubmission.util.TenantContext;
 import org.hibernate.Session;
 import org.hibernate.Transaction;
 
@@ -25,12 +26,25 @@ public class SubmissionDAO {
      * @throws RuntimeException if the operation fails
      */
     public Submission save(Submission submission) {
+        Long schoolId = TenantContext.requireSchoolId();
+        if (submission.getSchoolId() == null) {
+            submission.setSchoolId(schoolId);
+        }
+        if (!schoolId.equals(submission.getSchoolId())) {
+            throw new IllegalStateException("Submission belongs to another school");
+        }
         Transaction tx = null;
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
             tx = session.beginTransaction();
-            session.merge(submission);
+            if (submission.getId() != null) {
+                Submission existing = session.get(Submission.class, submission.getId());
+                if (existing != null && !schoolId.equals(existing.getSchoolId())) {
+                    throw new IllegalStateException("Submission belongs to another school");
+                }
+            }
+            Submission saved = session.merge(submission);
             tx.commit();
-            return submission;
+            return saved;
         } catch (Exception e) {
             if (tx != null) tx.rollback();
             throw new RuntimeException("Failed to save submission", e);
@@ -44,8 +58,11 @@ public class SubmissionDAO {
      * @return a list of submissions, ordered by submission date descending
      */
     public List<Submission> findByAssignmentId(Long assignmentId) {
+        Long schoolId = TenantContext.requireSchoolId();
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
-            return session.createQuery("FROM Submission WHERE assignment.id = :assignmentId ORDER BY submittedAt DESC", Submission.class)
+            return session.createQuery(
+                    "FROM Submission s WHERE s.schoolId = :schoolId AND s.assignment.id = :assignmentId ORDER BY s.submittedAt DESC", Submission.class)
+                    .setParameter("schoolId", schoolId)
                     .setParameter("assignmentId", assignmentId)
                     .list();
         }
@@ -59,9 +76,11 @@ public class SubmissionDAO {
      * @return the submission, or {@code null} if not found
      */
     public Submission findByAssignmentAndStudent(Long assignmentId, Long studentId) {
+        Long schoolId = TenantContext.requireSchoolId();
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
             List<Submission> submissions = session.createQuery(
-                    "FROM Submission WHERE assignment.id = :assignmentId AND student.id = :studentId", Submission.class)
+                    "FROM Submission s WHERE s.schoolId = :schoolId AND s.assignment.id = :assignmentId AND s.student.id = :studentId", Submission.class)
+                    .setParameter("schoolId", schoolId)
                     .setParameter("assignmentId", assignmentId)
                     .setParameter("studentId", studentId)
                     .list();
@@ -76,8 +95,11 @@ public class SubmissionDAO {
      * @return a list of submissions, ordered by submission date descending
      */
     public List<Submission> findByStudentId(Long studentId) {
+        Long schoolId = TenantContext.requireSchoolId();
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
-            return session.createQuery("FROM Submission WHERE student.id = :studentId ORDER BY submittedAt DESC", Submission.class)
+            return session.createQuery(
+                    "FROM Submission s WHERE s.schoolId = :schoolId AND s.student.id = :studentId ORDER BY s.submittedAt DESC", Submission.class)
+                    .setParameter("schoolId", schoolId)
                     .setParameter("studentId", studentId)
                     .list();
         }
@@ -90,8 +112,10 @@ public class SubmissionDAO {
      * @return the submission entity, or {@code null} if not found
      */
     public Submission findById(Long id) {
+        Long schoolId = TenantContext.requireSchoolId();
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
-            return session.get(Submission.class, id);
+            Submission submission = session.get(Submission.class, id);
+            return submission != null && schoolId.equals(submission.getSchoolId()) ? submission : null;
         }
     }
 
@@ -103,9 +127,11 @@ public class SubmissionDAO {
      * @return the submission, or {@code null} if not found
      */
     public Submission findByStudentAndAssignment(Long studentId, Long assignmentId) {
+        Long schoolId = TenantContext.requireSchoolId();
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
             List<Submission> submissions = session.createQuery(
-                    "FROM Submission WHERE student.id = :studentId AND assignment.id = :assignmentId", Submission.class)
+                    "FROM Submission s WHERE s.schoolId = :schoolId AND s.student.id = :studentId AND s.assignment.id = :assignmentId", Submission.class)
+                    .setParameter("schoolId", schoolId)
                     .setParameter("studentId", studentId)
                     .setParameter("assignmentId", assignmentId)
                     .list();
@@ -120,9 +146,11 @@ public class SubmissionDAO {
      * @return a list of submissions, ordered by submission date descending
      */
     public List<Submission> findByTeacherId(Long teacherId) {
+        Long schoolId = TenantContext.requireSchoolId();
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
             return session.createQuery(
-                    "FROM Submission WHERE assignment.teacher.id = :teacherId ORDER BY submittedAt DESC", Submission.class)
+                    "FROM Submission s WHERE s.schoolId = :schoolId AND s.assignment.teacher.id = :teacherId ORDER BY s.submittedAt DESC", Submission.class)
+                    .setParameter("schoolId", schoolId)
                     .setParameter("teacherId", teacherId)
                     .list();
         }
@@ -135,8 +163,11 @@ public class SubmissionDAO {
      * @return the count of submissions
      */
     public Long countByTeacherId(Long teacherId) {
+        Long schoolId = TenantContext.requireSchoolId();
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
-            return session.createQuery("SELECT COUNT(s) FROM Submission s WHERE s.assignment.teacher.id = :teacherId", Long.class)
+            return session.createQuery(
+                    "SELECT COUNT(s) FROM Submission s WHERE s.schoolId = :schoolId AND s.assignment.teacher.id = :teacherId", Long.class)
+                    .setParameter("schoolId", schoolId)
                     .setParameter("teacherId", teacherId)
                     .uniqueResult();
         }
@@ -148,6 +179,15 @@ public class SubmissionDAO {
      * @return a list of all submissions, ordered by submission date descending
      */
     public List<Submission> findAll() {
+        try (Session session = HibernateUtil.getSessionFactory().openSession()) {
+            Long schoolId = TenantContext.requireSchoolId();
+            return session.createQuery("FROM Submission s WHERE s.schoolId = :schoolId ORDER BY s.submittedAt DESC", Submission.class)
+                    .setParameter("schoolId", schoolId)
+                    .list();
+        }
+    }
+
+    public List<Submission> findAllGlobal() {
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
             return session.createQuery("FROM Submission ORDER BY submittedAt DESC", Submission.class)
                     .list();

@@ -8,7 +8,7 @@ import jakarta.servlet.http.HttpSession;
 import org.example.esubmission.dao.SubmissionDAO;
 import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
-import org.example.esubmission.util.UserRole;
+import org.example.esubmission.util.SecurityUtil;
 
 import java.io.File;
 import java.io.IOException;
@@ -84,7 +84,7 @@ public class SubmissionDetailsServlet extends HttpServlet {
             // Verify permission: Student owner, assignment Teacher, or Admin
             boolean isStudentOwner = submission.getStudent() != null && submission.getStudent().getId().equals(currentUser.getId());
             boolean isTeacherOwner = submission.getAssignment() != null && submission.getAssignment().getTeacher() != null && submission.getAssignment().getTeacher().getId().equals(currentUser.getId());
-            boolean isAdmin = currentUser.getRole() == UserRole.ADMIN;
+            boolean isAdmin = SecurityUtil.isAdminLike(currentUser);
 
             if (!isStudentOwner && !isTeacherOwner && !isAdmin) {
                 response.sendError(403, "Access denied");
@@ -141,7 +141,7 @@ public class SubmissionDetailsServlet extends HttpServlet {
                 // Verify permission: Student owner, assignment Teacher, or Admin
                 boolean isStudentOwner = submission.getStudent() != null && submission.getStudent().getId().equals(currentUser.getId());
                 boolean isTeacherOwner = submission.getAssignment() != null && submission.getAssignment().getTeacher() != null && submission.getAssignment().getTeacher().getId().equals(currentUser.getId());
-                boolean isAdmin = currentUser.getRole() == UserRole.ADMIN;
+                boolean isAdmin = SecurityUtil.isAdminLike(currentUser);
 
                 if (!isStudentOwner && !isTeacherOwner && !isAdmin) {
                     response.sendError(403, "Access denied");

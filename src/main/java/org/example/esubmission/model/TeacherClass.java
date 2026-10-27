@@ -14,12 +14,19 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "teacher_classes",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"teacher_id", "class_name"}))
+        uniqueConstraints = @UniqueConstraint(name = "uk_teacher_classes_school_teacher_class",
+                columnNames = {"school_id", "teacher_id", "class_name"}))
 public class TeacherClass {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /**
+     * The school (tenant) this teacher-class assignment belongs to.
+     */
+    @Column(name = "school_id", nullable = false)
+    private Long schoolId;
 
     @ManyToOne
     @JoinColumn(name = "teacher_id", nullable = false)
@@ -33,6 +40,9 @@ public class TeacherClass {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public Long getSchoolId() { return schoolId; }
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
 
     public User getTeacher() { return teacher; }
     public void setTeacher(User teacher) { this.teacher = teacher; }

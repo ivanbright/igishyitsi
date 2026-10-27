@@ -12,14 +12,22 @@ import java.time.LocalDateTime;
  * </p>
  */
 @Entity
-@Table(name = "classes")
+@Table(name = "classes",
+        uniqueConstraints = @UniqueConstraint(name = "uk_classes_school_name",
+                columnNames = {"school_id", "name"}))
 public class ClassGroup {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    /**
+     * The school (tenant) this class belongs to.
+     */
+    @Column(name = "school_id", nullable = false)
+    private Long schoolId;
+
+    @Column(nullable = false)
     private String name;
 
     @Column(columnDefinition = "TEXT")
@@ -40,6 +48,9 @@ public class ClassGroup {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public Long getSchoolId() { return schoolId; }
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }

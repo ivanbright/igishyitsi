@@ -23,6 +23,8 @@ import java.util.Set;
  * @author Mugisha Ivan Bright
  */
 public class AssignmentService {
+    private static final java.util.logging.Logger LOGGER = java.util.logging.Logger.getLogger(AssignmentService.class.getName());
+
     private final AssignmentDAO assignmentDAO;
     private final SubmissionDAO submissionDAO;
     private final StudentClassDAO studentClassDAO;
@@ -79,8 +81,38 @@ public class AssignmentService {
             savedAssignment.getPoints()
         );
         org.example.esubmission.websocket.AssignmentWebSocket.broadcastToClass(teacher.getId(), className, jsonMessage);
-        
+
+        notifyEnrolledStudents(savedAssignment, className.trim());
+
         return savedAssignment;
+    }
+
+    /**
+     * Notifies every student enrolled in the class that a new assignment exists.
+     * <p>
+     * The WebSocket broadcast above only reaches clients that happen to be
+     * connected at that moment, so this persists the notification as well;
+     * otherwise a student who was offline would never learn about the
+     * assignment. Notification failures are logged and never fail the
+     * assignment itself, which is already saved by this point.
+     * </p>
+     */
+    private void notifyEnrolledStudents(Assignment assignment, String className) {
+        List<User> students;
+        try {
+            students = studentClassDAO.findStudentsInClass(className);
+        } catch (Exception e) {
+            LOGGER.warning("Could not resolve students for class " + className + ": " + e.getMessage());
+            return;
+        }
+        NotificationService notificationService = new NotificationService();
+        for (User student : students) {
+            try {
+                notificationService.notifyNewAssignment(student, assignment.getTitle(), className, assignment.getId());
+            } catch (Exception e) {
+                LOGGER.warning("Could not notify " + student.getEmail() + ": " + e.getMessage());
+            }
+        }
     }
 
     /**

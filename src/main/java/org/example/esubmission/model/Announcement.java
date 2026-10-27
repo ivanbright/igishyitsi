@@ -14,6 +14,12 @@ public class Announcement {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * The school (tenant) this announcement belongs to.
+     */
+    @Column(name = "school_id", nullable = false)
+    private Long schoolId;
+
     @Column(nullable = false)
     private String title;
 
@@ -45,6 +51,9 @@ public class Announcement {
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public Long getSchoolId() { return schoolId; }
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
 
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }

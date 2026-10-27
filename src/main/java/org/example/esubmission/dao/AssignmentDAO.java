@@ -2,6 +2,7 @@ package org.example.esubmission.dao;
 
 import org.example.esubmission.model.Assignment;
 import org.example.esubmission.util.HibernateUtil;
+import org.example.esubmission.util.TenantContext;
 import org.hibernate.Session;
 import org.hibernate.Transaction;
 
@@ -26,12 +27,25 @@ public class AssignmentDAO {
      * @throws RuntimeException if the operation fails
      */
     public Assignment save(Assignment assignment) {
+        Long schoolId = TenantContext.requireSchoolId();
+        if (assignment.getSchoolId() == null) {
+            assignment.setSchoolId(schoolId);
+        }
+        if (!schoolId.equals(assignment.getSchoolId())) {
+            throw new IllegalStateException("Assignment belongs to another school");
+        }
         Transaction tx = null;
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
             tx = session.beginTransaction();
-            session.persist(assignment);
+            if (assignment.getId() != null) {
+                Assignment existing = session.get(Assignment.class, assignment.getId());
+                if (existing != null && !schoolId.equals(existing.getSchoolId())) {
+                    throw new IllegalStateException("Assignment belongs to another school");
+                }
+            }
+            Assignment saved = session.merge(assignment);
             tx.commit();
-            return assignment;
+            return saved;
         } catch (Exception e) {
             if (tx != null) tx.rollback();
             throw new RuntimeException("Failed to save assignment", e);
@@ -45,8 +59,11 @@ public class AssignmentDAO {
      * @return a list of assignments, ordered by creation date descending
      */
     public List<Assignment> findByTeacherId(Long teacherId) {
+        Long schoolId = TenantContext.requireSchoolId();
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
-            return session.createQuery("FROM Assignment WHERE teacher.id = :teacherId ORDER BY createdAt DESC", Assignment.class)
+            return session.createQuery(
+                    "FROM Assignment a WHERE a.schoolId = :schoolId AND a.teacher.id = :teacherId ORDER BY a.createdAt DESC", Assignment.class)
+                    .setParameter("schoolId", schoolId)
                     .setParameter("teacherId", teacherId)
                     .list();
         }
@@ -59,8 +76,10 @@ public class AssignmentDAO {
      * @return the assignment entity, or {@code null} if not found
      */
     public Assignment findById(Long id) {
+        Long schoolId = TenantContext.requireSchoolId();
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
-            return session.get(Assignment.class, id);
+            Assignment assignment = session.get(Assignment.class, id);
+            return assignment != null && schoolId.equals(assignment.getSchoolId()) ? assignment : null;
         }
     }
 
@@ -71,8 +90,11 @@ public class AssignmentDAO {
      * @return a list of assignments, ordered by deadline descending
      */
     public List<Assignment> findByClassName(String className) {
+        Long schoolId = TenantContext.requireSchoolId();
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
-            return session.createQuery("FROM Assignment WHERE className = :className ORDER BY deadline DESC", Assignment.class)
+            return session.createQuery(
+                    "FROM Assignment a WHERE a.schoolId = :schoolId AND a.className = :className ORDER BY a.deadline DESC", Assignment.class)
+                    .setParameter("schoolId", schoolId)
                     .setParameter("className", className)
                     .list();
         }
@@ -84,6 +106,15 @@ public class AssignmentDAO {
      * @return a list of all assignments, ordered by creation date descending
      */
     public List<Assignment> findAll() {
+        try (Session session = HibernateUtil.getSessionFactory().openSession()) {
+            Long schoolId = TenantContext.requireSchoolId();
+            return session.createQuery("FROM Assignment a WHERE a.schoolId = :schoolId ORDER BY a.createdAt DESC", Assignment.class)
+                    .setParameter("schoolId", schoolId)
+                    .list();
+        }
+    }
+
+    public List<Assignment> findAllGlobal() {
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
             return session.createQuery("FROM Assignment ORDER BY createdAt DESC", Assignment.class)
                     .list();
@@ -97,8 +128,11 @@ public class AssignmentDAO {
      * @return the count of assignments
      */
     public Long countByTeacherId(Long teacherId) {
+        Long schoolId = TenantContext.requireSchoolId();
         try (Session session = HibernateUtil.getSessionFactory().openSession()) {
-            return session.createQuery("SELECT COUNT(a) FROM Assignment a WHERE a.teacher.id = :teacherId", Long.class)
+            return session.createQuery(
+                    "SELECT COUNT(a) FROM Assignment a WHERE a.schoolId = :schoolId AND a.teacher.id = :teacherId", Long.class)
+                    .setParameter("schoolId", schoolId)
                     .setParameter("teacherId", teacherId)
                     .uniqueResult();
         }

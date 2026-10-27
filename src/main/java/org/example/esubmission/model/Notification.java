@@ -18,6 +18,10 @@ public class Notification {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** The school (tenant) this notification belongs to. */
+    @Column(name = "school_id", nullable = false)
+    private Long schoolId;
+
     /** The user who receives this notification. */
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
@@ -61,6 +65,9 @@ public class Notification {
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public Long getSchoolId() { return schoolId; }
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
 
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }

@@ -13,6 +13,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${pageTitle} - Igishyitsi</title>
     <meta name="description" content="Igishyitsi e-submission platform dashboard">
+    <meta name="csrf-token" content="<c:out value='${csrfToken}' default=""/>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -27,10 +28,24 @@
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="logo">
-                    <span class="logo-text">Igishyitsi</span>
+                    <c:choose>
+                        <c:when test="${not empty schoolName}">
+                            <c:if test="${not empty schoolLogoUrl}">
+                                <img src="<c:out value='${schoolLogoUrl}'/>" alt="<c:out value='${schoolName}'/> logo" class="logo-image"
+                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
+                            </c:if>
+                            <span class="logo-text" style="<c:if test='${empty schoolLogoUrl}'>display:inline;</c:if><c:if test='${not empty schoolLogoUrl}'>display:none;</c:if>"><c:out value="${schoolName}"/></span>
+                        </c:when>
+                        <c:otherwise>
+                            <span class="logo-text">Igishyitsi</span>
+                        </c:otherwise>
+                    </c:choose>
                 </div>
+                <c:if test="${not empty schoolName}">
+                    <div class="school-badge">School workspace</div>
+                </c:if>
                 <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="12" x2="23" y2="12"/><line x1="1" y1="6" x2="23" y2="6"/><line x1="1" y1="18" x2="23" y2="18"/></svg>
                 </button>
             </div>
             
@@ -113,7 +128,21 @@
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/></svg>
                             <span>Announcements</span>
                         </a>
+                        <a href="${pageContext.request.contextPath}/admin/dashboard?section=school" class="nav-item ${activeSection == 'school' ? 'active' : ''}">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l7-4 7 4v14"/><path d="M9 21v-4h6v4"/></svg>
+                            <span>School Profile</span>
+                        </a>
                     </c:when>
+                  <c:when test="${role == 'SUPER_ADMIN'}">
+                      <a href="${pageContext.request.contextPath}/super/dashboard" class="nav-item ${activeSection == 'overview' ? 'active' : ''}">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                          <span>Platform Dashboard</span>
+                      </a>
+                      <a href="${pageContext.request.contextPath}/super/dashboard" class="nav-item ${activeSection == 'schools' ? 'active' : ''}">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l7-4 7 4v14"/><path d="M9 21v-4h6v4"/></svg>
+                          <span>Schools &amp; Plans</span>
+                      </a>
+                  </c:when>
                 </c:choose>
             </nav>
             <div class="sidebar-footer">
@@ -132,6 +161,18 @@
                     <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Open menu">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
                     </button>
+                    <c:if test="${not empty schoolName}">
+                        <div class="current-school">
+                            <c:if test="${not empty schoolLogoUrl}">
+                                <img src="<c:out value='${schoolLogoUrl}'/>" alt="" class="current-school-logo"
+                                     onerror="this.style.display='none';">
+                            </c:if>
+                            <div class="current-school-text">
+                                <span class="current-school-label">Current School</span>
+                                <span class="current-school-name"><c:out value="${schoolName}"/></span>
+                            </div>
+                        </div>
+                    </c:if>
                 </div>
                 <div class="top-bar-actions">
                     <jsp:invoke fragment="topBarActions"/>
@@ -139,13 +180,19 @@
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                         <span class="notification-badge" id="notifBadge" style="display:none;">0</span>
                     </div>
-                    <div class="user-profile-top">
+                    <a class="user-profile-top" href="${pageContext.request.contextPath}/profile" title="My profile">
                         <div class="user-avatar-top" id="userAvatarTop"></div>
                         <div class="user-info-top">
                             <span class="user-name-top" id="userNameTop"></span>
-                            <span class="user-role-top">${role eq 'STUDENT' ? 'Student' : (role eq 'TEACHER' ? 'Teacher' : 'Administrator')}</span>
+                            <span class="user-role-top"><c:choose>
+                                    <c:when test="${role == 'SUPER_ADMIN'}">Platform Administrator</c:when>
+                                    <c:when test="${role == 'ADMIN'}">Administrator</c:when>
+                                    <c:when test="${role == 'TEACHER'}">Teacher</c:when>
+                                    <c:when test="${role == 'PARENT'}">Parent</c:when>
+                                    <c:otherwise>Student</c:otherwise>
+                                </c:choose></span>
                         </div>
-                    </div>
+                    </a>
                 </div>
             </header>
 
@@ -209,6 +256,12 @@
             return 'hsl(' + h + ', 70%, 50%)';
         }
 
+        function sharedCsrfToken() {
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            if (meta && meta.content) return meta.content;
+            return (window.serverData && window.serverData.csrfToken) || '';
+        }
+
         function setupSharedNotifications() {
             const bell = document.getElementById('notificationBell');
             const panel = document.getElementById('notificationPanel');
@@ -231,17 +284,24 @@
             const markAllBtn = document.getElementById('markAllReadBtn');
             if (markAllBtn) {
                 markAllBtn.addEventListener('click', function() {
-                    fetch(contextPath + '/api/notifications/read', { method: 'POST' })
-                        .then(() => {
-                            document.getElementById('notifBadge').style.display = 'none';
-                            fetchNotifications(contextPath);
-                        });
+                    fetch(contextPath + '/api/notifications/read', {
+                        method: 'POST',
+                        headers: { 'X-CSRF-Token': sharedCsrfToken() }
+                    }).then(r => {
+                        if (!r.ok) throw new Error('mark all failed');
+                        document.getElementById('notifBadge').style.display = 'none';
+                        fetchNotifications(contextPath);
+                    }).catch(() => {
+                        if (typeof showToast === 'function') {
+                            showToast('Could not mark notifications as read', 'error');
+                        }
+                    });
                 });
             }
 
             // Initial badge count
             fetch(contextPath + '/api/notifications')
-                .then(r => r.json())
+                .then(r => r.ok ? r.json() : { unreadCount: 0 })
                 .then(data => {
                     if (data.unreadCount > 0) {
                         const badge = document.getElementById('notifBadge');
@@ -253,7 +313,7 @@
 
         function fetchNotifications(contextPath) {
             fetch(contextPath + '/api/notifications')
-                .then(r => r.json())
+                .then(r => r.ok ? r.json() : { notifications: [], unreadCount: 0 })
                 .then(data => {
                     const list = document.getElementById('notifList');
                     if (!data.notifications || data.notifications.length === 0) {
@@ -268,7 +328,7 @@
                                 '<p>' + escapeHtmlShared(n.message) + '</p>' +
                                 '<span class="notif-time">' + escapeHtmlShared(n.createdAt) + '</span>' +
                             '</div>' +
-                            (n.link ? '<a href="' + contextPath + n.link + '" class="notif-link">View</a>' : '') +
+                                (n.link ? '<a href="' + contextPath + escapeHtmlShared(n.link) + '" class="notif-link" onclick="markNotificationRead(event, ' + n.id + ')">View</a>' : '') +
                         '</div>';
                     });
                     list.innerHTML = html;
@@ -281,6 +341,15 @@
                         badge.style.display = 'none';
                     }
                 }).catch(() => {});
+        }
+
+        function markNotificationRead(event, id) {
+            if (!id) return;
+            fetch('${pageContext.request.contextPath}/api/notifications/read/' + id, {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': sharedCsrfToken() },
+                keepalive: true
+            }).catch(() => {});
         }
 
         function setupSharedWebSocket() {

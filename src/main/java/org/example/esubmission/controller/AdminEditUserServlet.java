@@ -5,10 +5,13 @@ import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.example.esubmission.dao.SchoolMembershipDAO;
 import org.example.esubmission.dao.UserDAO;
+import org.example.esubmission.model.SchoolMembership;
 import org.example.esubmission.model.User;
 import org.example.esubmission.service.UserService;
 import org.example.esubmission.util.SecurityUtil;
+import org.example.esubmission.util.TenantContext;
 import org.example.esubmission.util.UserRole;
 
 import java.io.IOException;
@@ -20,11 +23,13 @@ public class AdminEditUserServlet extends HttpServlet {
     private static final Logger logger = Logger.getLogger(AdminEditUserServlet.class.getName());
     private UserService userService;
     private UserDAO userDAO;
+    private SchoolMembershipDAO schoolMembershipDAO;
 
     @Override
     public void init() throws ServletException {
         this.userDAO = new UserDAO();
         this.userService = new UserService(this.userDAO);
+        this.schoolMembershipDAO = new SchoolMembershipDAO();
     }
 
     @Override
@@ -34,8 +39,7 @@ public class AdminEditUserServlet extends HttpServlet {
         PrintWriter out = response.getWriter();
         
         try {
-            User admin = (User) request.getSession().getAttribute("user");
-            if (admin == null || admin.getRole() != UserRole.ADMIN || !SecurityUtil.csrfValid(request)) {
+            if (SecurityUtil.requireAdmin(request) == null || !SecurityUtil.csrfValid(request)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 out.print("{\"success\":false,\"message\":\"Unauthorized\"}");
                 return;
@@ -88,13 +92,29 @@ public class AdminEditUserServlet extends HttpServlet {
                 out.print("{\"success\":false,\"message\":\"Invalid role\"}");
                 return;
             }
+            if (role == UserRole.SUPER_ADMIN) {
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                out.print("{\"success\":false,\"message\":\"School administrators cannot assign the platform administrator role\"}");
+                return;
+            }
+            if (userToEdit.getId().equals(SecurityUtil.requireAdmin(request).getId())
+                    && role != SecurityUtil.effectiveRole(SecurityUtil.requireAdmin(request))) {
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                out.print("{\"success\":false,\"message\":\"You cannot change your own school role\"}");
+                return;
+            }
 
             userToEdit.setName(name.trim());
             userToEdit.setEmail(email.trim());
             userToEdit.setPhone(phone != null ? phone.trim() : null);
-            userToEdit.setRole(role);
-            
             userDAO.save(userToEdit);
+
+            SchoolMembership membership = schoolMembershipDAO.findByUserAndSchool(userId, TenantContext.requireSchoolId());
+            if (membership == null) {
+                throw new IllegalStateException("School membership not found");
+            }
+            membership.setRole(role);
+            schoolMembershipDAO.save(membership);
 
             out.print("{\"success\":true,\"message\":\"User updated successfully\"}");
         } catch (Exception e) {

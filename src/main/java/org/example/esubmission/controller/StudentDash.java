@@ -12,6 +12,7 @@ import org.example.esubmission.model.Assignment;
 import org.example.esubmission.model.StudentClass;
 import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
+import org.example.esubmission.util.SecurityUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
@@ -72,6 +73,7 @@ public class StudentDash extends HttpServlet {
         }
 
         try {
+            String csrfToken = SecurityUtil.getCsrfToken(request);
             Long studentId = student.getId();
             List<StudentClass> studentClasses = studentClassDAO.findStudentClassesByStudent(studentId);
             
@@ -107,9 +109,11 @@ public class StudentDash extends HttpServlet {
             stats.put("pendingAssignments", pending);
             
             request.setAttribute("stats", stats);
+            request.setAttribute("csrfToken", csrfToken);
             request.setAttribute("assignments", allAssignments);
             request.setAttribute("recentSubmissions", submissions);
             request.setAttribute("enrolledClasses", studentClasses);
+            org.example.esubmission.util.TenantView.apply(request);
 
             // Serialize all data to JSON for frontend
             ObjectMapper mapper = new ObjectMapper();
@@ -120,6 +124,7 @@ public class StudentDash extends HttpServlet {
             realData.put("enrolledClasses", studentClasses);
             realData.put("assignments", allAssignments);
             realData.put("recentSubmissions", submissions);
+            realData.put("csrfToken", csrfToken);
             realData.put("stats", Map.of(
                 "totalCourses", studentClasses.size(),
                 "submittedAssignments", submitted,
@@ -127,7 +132,7 @@ public class StudentDash extends HttpServlet {
             ));
             
             String realDataJson = mapper.writeValueAsString(realData);
-            request.setAttribute("realData", realDataJson);
+            request.setAttribute("realData", org.example.esubmission.util.JsonUtil.forScriptEmbedding(realDataJson));
 
             request.getRequestDispatcher("/WEB-INF/pages/studentDash.jsp").forward(request, response);
         } catch (Exception e) {

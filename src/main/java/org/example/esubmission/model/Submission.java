@@ -25,6 +25,12 @@ public class Submission {
     private Long id;
 
     /**
+     * The school (tenant) this submission belongs to.
+     */
+    @Column(name = "school_id", nullable = false)
+    private Long schoolId;
+
+    /**
      * The assignment associated with this submission.
      * <p>
      * Represents a many-to-one relationship to {@link Assignment}.
@@ -123,6 +129,10 @@ public class Submission {
      * @param id the submission ID to set
      */
     public void setId(Long id) { this.id = id; }
+
+    public Long getSchoolId() { return schoolId; }
+
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
 
     /**
      * Returns the assignment associated with this submission.

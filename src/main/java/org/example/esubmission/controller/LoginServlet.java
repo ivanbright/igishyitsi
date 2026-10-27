@@ -12,6 +12,8 @@ import org.example.esubmission.model.User;
 import org.example.esubmission.service.EmailService;
 import org.example.esubmission.service.UserService;
 import org.example.esubmission.util.JwtUtil;
+import org.example.esubmission.util.SecurityUtil;
+import org.example.esubmission.util.UserRole;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -147,7 +149,15 @@ public class LoginServlet extends HttpServlet {
 
         // Redirect based on role
         String contextPath = request.getContextPath();
-        switch (user.getRole()) {
+        UserRole effectiveRole = SecurityUtil.primaryRole(user);
+        if (effectiveRole == null) {
+            response.sendRedirect(contextPath + "/onboarding");
+            return;
+        }
+        switch (effectiveRole) {
+            case SUPER_ADMIN:
+                response.sendRedirect(contextPath + "/super/dashboard");
+                break;
             case ADMIN:
                 response.sendRedirect(contextPath + "/admin/dashboard");
                 break;

@@ -9,7 +9,7 @@ import org.example.esubmission.dao.SubmissionDAO;
 import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
 import org.example.esubmission.service.NotificationService;
-import org.example.esubmission.util.UserRole;
+import org.example.esubmission.util.SecurityUtil;
 
 import java.io.IOException;
 
@@ -36,9 +36,13 @@ public class GradeSubmissionServlet extends HttpServlet {
     protected void doPost(HttpServletRequest request, HttpServletResponse response) 
             throws ServletException, IOException {
         
-        User user = (User) request.getSession().getAttribute("user");
-        if (user == null || user.getRole() != UserRole.TEACHER) {
+        User user = SecurityUtil.requireTeacher(request);
+        if (user == null) {
             response.sendError(HttpServletResponse.SC_FORBIDDEN, "Only teachers can grade assignments.");
+            return;
+        }
+        if (!SecurityUtil.csrfValid(request)) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid CSRF token");
             return;
         }
 

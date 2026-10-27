@@ -27,5 +27,7 @@
         <mapping class="org.example.esubmission.model.ClassGroup"/>
         <mapping class="org.example.esubmission.model.TeacherClass"/>
         <mapping class="org.example.esubmission.model.ParentChild"/>
+        <mapping class="org.example.esubmission.model.School"/>
+        <mapping class="org.example.esubmission.model.SchoolMembership"/>
     </session-factory>
 </hibernate-configuration>

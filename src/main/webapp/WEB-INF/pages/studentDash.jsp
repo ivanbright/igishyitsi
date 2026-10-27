@@ -11,11 +11,14 @@
 
         let serverData = {};
         try {
-            serverData = JSON.parse(document.getElementById('server-data').textContent);
+            const el = document.getElementById('server-data');
+            serverData = el ? JSON.parse(el.textContent) : (window.serverData || {});
         } catch (e) {
             serverData = window.serverData || {};
             console.error('Failed to parse serverData', e);
         }
+        const metaCsrf = document.querySelector('meta[name="csrf-token"]');
+        window.__csrf = (metaCsrf && metaCsrf.content) || serverData.csrfToken || '';
 
         const user = serverData.currentUser || {};
         const assignments = serverData.assignments || [];
@@ -610,6 +613,7 @@
                 </button>
             </div>
             <form id="submitForm" action="${pageContext.request.contextPath}/submitAssignment" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="csrfToken" value="${csrfToken}">
                 <input type="hidden" name="assignmentId" id="submitAssignmentId">
                 <div class="form-group" id="submitModalDetails" style="display:none; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:16px; margin-bottom:16px;">
                     <p class="assignment-desc" id="submitModalDescription" style="white-space:pre-wrap; margin-bottom:10px;"></p>

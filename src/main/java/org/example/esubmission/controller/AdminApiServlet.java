@@ -10,19 +10,23 @@ import org.example.esubmission.dao.AssignmentDAO;
 import org.example.esubmission.dao.ClassGroupDAO;
 import org.example.esubmission.dao.ParentChildDAO;
 import org.example.esubmission.dao.StudentClassDAO;
+import org.example.esubmission.dao.SchoolMembershipDAO;
 import org.example.esubmission.dao.SubjectDAO;
 import org.example.esubmission.dao.SubmissionDAO;
 import org.example.esubmission.dao.TeacherClassDAO;
 import org.example.esubmission.dao.UserDAO;
 import org.example.esubmission.model.Assignment;
 import org.example.esubmission.model.ClassGroup;
+import org.example.esubmission.model.SchoolMembership;
 import org.example.esubmission.model.ParentChild;
 import org.example.esubmission.model.StudentClass;
 import org.example.esubmission.model.Subject;
 import org.example.esubmission.model.TeacherClass;
 import org.example.esubmission.model.User;
+import org.example.esubmission.service.NotificationService;
 import org.example.esubmission.util.JsonUtil;
 import org.example.esubmission.util.SecurityUtil;
+import org.example.esubmission.util.TenantContext;
 import org.example.esubmission.util.UserRole;
 
 import java.io.IOException;
@@ -41,6 +45,9 @@ import java.util.Map;
  */
 public class AdminApiServlet extends HttpServlet {
 
+    private static final java.util.logging.Logger logger =
+            java.util.logging.Logger.getLogger(AdminApiServlet.class.getName());
+
     private UserDAO userDAO;
     private SubjectDAO subjectDAO;
     private AssignmentDAO assignmentDAO;
@@ -50,6 +57,8 @@ public class AdminApiServlet extends HttpServlet {
     private ParentChildDAO parentChildDAO;
     private StudentClassDAO studentClassDAO;
     private SubmissionDAO submissionDAO;
+    private SchoolMembershipDAO schoolMembershipDAO;
+    private NotificationService notificationService;
     private ObjectMapper objectMapper;
 
     @Override
@@ -63,6 +72,8 @@ public class AdminApiServlet extends HttpServlet {
         this.parentChildDAO = new ParentChildDAO();
         this.studentClassDAO = new StudentClassDAO();
         this.submissionDAO = new SubmissionDAO();
+        this.schoolMembershipDAO = new SchoolMembershipDAO();
+        this.notificationService = new NotificationService();
         this.objectMapper = JsonUtil.MAPPER;
     }
 
@@ -71,7 +82,8 @@ public class AdminApiServlet extends HttpServlet {
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
 
-        if (SecurityUtil.requireAdmin(request) == null) {
+        User adminUser = SecurityUtil.requireAdmin(request);
+        if (adminUser == null) {
             sendError(response, HttpServletResponse.SC_FORBIDDEN, "Unauthorized");
             return;
         }
@@ -107,6 +119,9 @@ public class AdminApiServlet extends HttpServlet {
                     break;
                 case "/classes":
                     handleClasses(request, response);
+                    break;
+                case "/subjects":
+                    handleSubjects(request, response);
                     break;
                 case "/enroll":
                     handleEnroll(request, response);
@@ -192,24 +207,47 @@ public class AdminApiServlet extends HttpServlet {
 
         try {
             Long userId = Long.parseLong(userIdStr);
-            UserRole role = UserRole.valueOf(roleStr);
+            UserRole role = schoolRole(roleStr);
             User user = userDAO.findById(userId);
 
             if (user == null) {
                 sendError(response, HttpServletResponse.SC_NOT_FOUND, "User not found");
                 return;
             }
-            if (user.getId().equals(SecurityUtil.requireAdmin(request).getId()) && role != UserRole.ADMIN) {
-                sendError(response, HttpServletResponse.SC_BAD_REQUEST, "You cannot demote your own account");
+            User admin = SecurityUtil.requireAdmin(request);
+            if (user.getId().equals(admin.getId()) && role != SecurityUtil.effectiveRole(admin)) {
+                sendError(response, HttpServletResponse.SC_BAD_REQUEST, "You cannot change your own school role");
                 return;
             }
-
-            user.setRole(role);
-            userDAO.save(user);
+            SchoolMembership membership = schoolMembershipDAO.findByUserAndSchool(userId, TenantContext.requireSchoolId());
+            if (membership == null) {
+                sendError(response, HttpServletResponse.SC_BAD_REQUEST, "User is not a member of this school");
+                return;
+            }
+            membership.setRole(role);
+            schoolMembershipDAO.save(membership);
+            notifySafely(user, "Your role has changed",
+                    "Your role in this school is now " + role + ".", "ROLE_CHANGED", "/profile");
             sendSuccess(response, "Role updated to " + role);
         } catch (IllegalArgumentException e) {
             sendError(response, HttpServletResponse.SC_BAD_REQUEST, "Invalid role value");
         }
+    }
+
+    private UserRole schoolRole(String roleStr) {
+        if (roleStr == null) {
+            throw new IllegalArgumentException("Role is required");
+        }
+        UserRole role;
+        try {
+            role = UserRole.valueOf(roleStr.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid role value");
+        }
+        if (role == UserRole.SUPER_ADMIN) {
+            throw new IllegalArgumentException("SUPER_ADMIN cannot be assigned within a school");
+        }
+        return role;
     }
 
     private void handleUserStatus(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -239,6 +277,16 @@ public class AdminApiServlet extends HttpServlet {
         }
 
         userDAO.save(user);
+        if (request.getParameter("disabled") != null) {
+            boolean disabled = Boolean.parseBoolean(request.getParameter("disabled"));
+            notifySafely(user,
+                    disabled ? "Your account has been disabled" : "Your account has been re-enabled",
+                    disabled
+                            ? "An administrator disabled your account. Contact your school administrator if this is unexpected."
+                            : "An administrator re-enabled your account. You can sign in again.",
+                    "ACCOUNT_STATUS_CHANGED",
+                    "/profile");
+        }
         sendSuccess(response, "Account status updated");
     }
 
@@ -384,6 +432,60 @@ public class AdminApiServlet extends HttpServlet {
             }
             default:
                 sendError(response, HttpServletResponse.SC_BAD_REQUEST, "Unknown class action");
+        }
+    }
+
+    private void handleSubjects(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        String action = request.getParameter("action");
+        if (action == null) {
+            sendError(response, HttpServletResponse.SC_BAD_REQUEST, "Missing action");
+            return;
+        }
+
+        switch (action) {
+            case "create": {
+                String code = request.getParameter("code");
+                String name = request.getParameter("name");
+                if (code == null || code.trim().isEmpty()) {
+                    sendError(response, HttpServletResponse.SC_BAD_REQUEST, "Subject code is required");
+                    return;
+                }
+                if (name == null || name.trim().isEmpty()) {
+                    sendError(response, HttpServletResponse.SC_BAD_REQUEST, "Subject name is required");
+                    return;
+                }
+                String trimmedCode = code.trim();
+                String trimmedName = name.trim();
+                for (Subject existing : subjectDAO.findAll()) {
+                    if (existing.getCode() != null && existing.getCode().equalsIgnoreCase(trimmedCode)) {
+                        sendError(response, HttpServletResponse.SC_CONFLICT, "A subject with this code already exists");
+                        return;
+                    }
+                }
+                Integer credits = null;
+                String creditsStr = request.getParameter("credits");
+                if (creditsStr != null && !creditsStr.trim().isEmpty()) {
+                    try {
+                        credits = Integer.parseInt(creditsStr.trim());
+                    } catch (NumberFormatException e) {
+                        sendError(response, HttpServletResponse.SC_BAD_REQUEST, "Credits must be a number");
+                        return;
+                    }
+                }
+                if (credits == null) {
+                    credits = 0;
+                }
+                String department = request.getParameter("department");
+                if (department == null || department.trim().isEmpty()) {
+                    department = "General";
+                }
+                Subject subject = new Subject(trimmedCode, trimmedName, department.trim(), credits);
+                subjectDAO.save(subject);
+                sendSuccess(response, "Subject '" + trimmedCode + "' created");
+                break;
+            }
+            default:
+                sendError(response, HttpServletResponse.SC_BAD_REQUEST, "Unknown subject action");
         }
     }
 
@@ -559,6 +661,15 @@ public class AdminApiServlet extends HttpServlet {
         res.put("success", true);
         res.put("message", message);
         objectMapper.writeValue(response.getWriter(), res);
+    }
+
+    private void notifySafely(User user, String title, String message, String type, String link) {
+        try {
+            notificationService.notify(user, title, message, type, link);
+        } catch (Exception e) {
+            logger.log(java.util.logging.Level.WARNING,
+                    "Could not notify user " + (user == null ? "null" : user.getEmail()), e);
+        }
     }
 
     private void sendError(HttpServletResponse response, int status, String message) throws IOException {

@@ -7,6 +7,7 @@ import jakarta.websocket.OnOpen;
 import jakarta.websocket.Session;
 import jakarta.websocket.server.PathParam;
 import jakarta.websocket.server.ServerEndpoint;
+import org.example.esubmission.dao.SchoolMembershipDAO;
 import org.example.esubmission.dao.StudentClassDAO;
 import org.example.esubmission.model.User;
 
@@ -30,6 +31,7 @@ public class AssignmentWebSocket {
     // Thread-safe map of active sessions: Key = userId, Value = Session
     private static final Map<Long, Session> sessions = new ConcurrentHashMap<>();
     private static final StudentClassDAO studentClassDAO = new StudentClassDAO();
+    private static final SchoolMembershipDAO schoolMembershipDAO = new SchoolMembershipDAO();
 
     @OnOpen
     public void onOpen(Session session, @PathParam("userId") String userIdStr) {
@@ -96,6 +98,24 @@ public class AssignmentWebSocket {
         List<User> students = studentClassDAO.findStudentsByTeacherAndClass(teacherId, className);
         for (User student : students) {
             broadcastToUser(student.getId(), message);
+        }
+    }
+
+    /**
+     * Broadcasts a text message to all connected users who belong to the
+     * given school (tenant). Users outside the school never receive it.
+     *
+     * @param schoolId the ID of the school whose members receive the message
+     * @param message  the JSON or string message
+     */
+    public static void broadcastToSchool(Long schoolId, String message) {
+        if (schoolId == null) {
+            return;
+        }
+        for (Long userId : sessions.keySet()) {
+            if (schoolMembershipDAO.findByUserAndSchool(userId, schoolId) != null) {
+                broadcastToUser(userId, message);
+            }
         }
     }
 

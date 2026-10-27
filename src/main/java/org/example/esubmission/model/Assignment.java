@@ -27,6 +27,12 @@ public class Assignment {
     private Long id;
 
     /**
+     * The school (tenant) this assignment belongs to.
+     */
+    @Column(name = "school_id", nullable = false)
+    private Long schoolId;
+
+    /**
      * Title of the assignment.
      * <p>
      * Cannot be null.
@@ -117,6 +123,10 @@ public class Assignment {
      * @param id the assignment ID to set
      */
     public void setId(Long id) { this.id = id; }
+
+    public Long getSchoolId() { return schoolId; }
+
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
 
     /**
      * Returns the title of the assignment.

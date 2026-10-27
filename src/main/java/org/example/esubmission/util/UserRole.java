@@ -7,6 +7,7 @@ package org.example.esubmission.util;
  * </p>
  */
 public enum UserRole {
+    SUPER_ADMIN("Super Administrator"),
     ADMIN("Administrator"),
     STUDENT("Student"),
     TEACHER("Teacher"),

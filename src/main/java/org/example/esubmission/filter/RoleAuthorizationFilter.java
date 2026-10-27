@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.example.esubmission.model.User;
+import org.example.esubmission.util.SecurityUtil;
 import org.example.esubmission.util.UserRole;
 
 import java.io.IOException;
@@ -41,7 +42,11 @@ public class RoleAuthorizationFilter implements Filter {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
         HttpServletResponse httpResponse = (HttpServletResponse) response;
         
-        String path = httpRequest.getServletPath();
+        String requestUri = httpRequest.getRequestURI();
+        String contextPath = httpRequest.getContextPath();
+        String path = requestUri.startsWith(contextPath)
+                ? requestUri.substring(contextPath.length())
+                : requestUri;
         HttpSession session = httpRequest.getSession(false);
         
         // Allow static resources and root/index to bypass role check
@@ -59,37 +64,45 @@ public class RoleAuthorizationFilter implements Filter {
         }
         
         User user = (User) session.getAttribute("user");
-        UserRole userRole = user.getRole();
+        UserRole userRole = SecurityUtil.effectiveRole(user);
 
-        // PARENT accounts can view their own profile but no dashboards yet
-        if (path.equals("/profile") && userRole == UserRole.PARENT) {
-            chain.doFilter(request, response);
+        if (isPath(path, "/super/") && userRole != UserRole.SUPER_ADMIN) {
+            httpRequest.setAttribute("errorMessage", "Platform admin access required");
+            httpRequest.getRequestDispatcher("/error403.jsp").forward(request, response);
             return;
         }
-        
-        // Check role-based access
-        if (path.contains("/admin/") && userRole != UserRole.ADMIN) {
+
+        if (isPath(path, "/api/super/schools/") && userRole != UserRole.SUPER_ADMIN) {
+            httpRequest.setAttribute("errorMessage", "Platform admin access required");
+            httpRequest.getRequestDispatcher("/error403.jsp").forward(request, response);
+            return;
+        }
+
+        if (isPath(path, "/admin/") && userRole != UserRole.ADMIN && userRole != UserRole.SUPER_ADMIN) {
             httpRequest.setAttribute("errorMessage", "Admin access required");
             httpRequest.getRequestDispatcher("/error403.jsp").forward(request, response);
             return;
         }
-        
-        if (path.contains("/teacher/") && userRole != UserRole.TEACHER) {
+
+        if (isPath(path, "/teacher/") && userRole != UserRole.TEACHER) {
             httpRequest.setAttribute("errorMessage", "Teacher access required");
             httpRequest.getRequestDispatcher("/error403.jsp").forward(request, response);
             return;
         }
-        
-        if ((path.contains("/student/") || path.contains("/studentDash") || 
-             path.contains("/grades") || path.contains("/mySubmissions") || 
-             path.contains("/profile") || path.contains("/submitAssignment") || 
-             path.contains("/submissionDetails")) && userRole != UserRole.STUDENT) {
+
+        if ((isPath(path, "/student/") || path.equals("/studentDash") ||
+             path.equals("/grades") || path.equals("/mySubmissions") ||
+             path.equals("/submitAssignment") || path.equals("/submissionDetails") ||
+             isPath(path, "/api/student/")) && userRole != UserRole.STUDENT) {
             httpRequest.setAttribute("errorMessage", "Student access required");
             httpRequest.getRequestDispatcher("/error403.jsp").forward(request, response);
             return;
         }
-        
-        // Role matches, proceed
+
         chain.doFilter(request, response);
+    }
+
+    private boolean isPath(String path, String prefix) {
+        return path.equals(prefix) || path.startsWith(prefix);
     }
 }

@@ -6,14 +6,22 @@ import jakarta.persistence.*;
  * Represents a subject in the school curriculum.
  */
 @Entity
-@Table(name = "subjects")
+@Table(name = "subjects",
+        uniqueConstraints = @UniqueConstraint(name = "uk_subjects_school_code",
+                columnNames = {"school_id", "code"}))
 public class Subject {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    /**
+     * The school (tenant) this subject belongs to.
+     */
+    @Column(name = "school_id", nullable = false)
+    private Long schoolId;
+
+    @Column(nullable = false)
     private String code;
 
     @Column(nullable = false)
@@ -40,6 +48,9 @@ public class Subject {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public Long getSchoolId() { return schoolId; }
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
 
     public String getCode() { return code; }
     public void setCode(String code) { this.code = code; }

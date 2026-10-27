@@ -41,6 +41,7 @@
     <nav class="nav">
         <div class="brand">IGISHYITSI</div>
         <c:choose>
+            <c:when test="${user.role == 'SUPER_ADMIN'}"><a href="${pageContext.request.contextPath}/super/dashboard">Back to Dashboard</a></c:when>
             <c:when test="${user.role == 'ADMIN'}"><a href="${pageContext.request.contextPath}/admin/dashboard">Back to Dashboard</a></c:when>
             <c:when test="${user.role == 'TEACHER'}"><a href="${pageContext.request.contextPath}/teacher/dashboard">Back to Dashboard</a></c:when>
             <c:when test="${user.role == 'STUDENT'}"><a href="${pageContext.request.contextPath}/student/dashboard">Back to Dashboard</a></c:when>
@@ -48,23 +49,30 @@
         </c:choose>
     </nav>
     <div class="container">
+        <c:if test="${not empty sessionScope.error}">
+            <div class="msg error">${sessionScope.error}</div>
+            <% session.removeAttribute("error"); %>
+        </c:if>
         <c:if test="${not empty sessionScope.message}">
             <div class="msg success">${sessionScope.message}</div>
             <% session.removeAttribute("message"); %>
         </c:if>
         <h1>${user.name}</h1>
-        <div class="sub">${user.email} &middot; ${user.role}</div>
+        <div class="sub">${user.email} &middot; ${user.role}<c:if test="${not empty schoolName}"> &middot; ${schoolName}</c:if></div>
 
+        <c:if test="${not empty schoolName}">
         <div class="grid">
             <div class="stat"><div class="num">${totalSubmissions}</div><div class="label">Total Submissions</div></div>
             <div class="stat"><div class="num">${gradedSubmissions}</div><div class="label">Graded</div></div>
             <div class="stat"><div class="num">${averageGrade eq 0 ? '--' : averageGrade}</div><div class="label">Average Grade</div></div>
         </div>
+        </c:if>
 
         <div class="card">
             <h2 style="font-size:16px; margin-bottom:20px;">Edit Profile</h2>
-            <form action="${pageContext.request.contextPath}/profile" method="POST">
-                <input type="hidden" name="action" value="updateProfile">
+              <form action="${pageContext.request.contextPath}/profile" method="POST">
+                  <input type="hidden" name="csrfToken" value="${csrfToken}">
+                  <input type="hidden" name="action" value="updateProfile">
                 <div class="field">
                     <label>Full Name</label>
                     <input type="text" name="name" value="${user.name}" required>
@@ -74,6 +82,30 @@
                     <input type="tel" name="phone" value="${user.phone}">
                 </div>
                 <button type="submit" class="btn">Save Changes</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2 style="font-size:16px; margin-bottom:6px;">Change Password</h2>
+            <p style="font-size:13px; color:rgba(255,255,255,0.5); margin-bottom:20px;">
+                Choose a password of at least 8 characters that you do not use anywhere else.
+            </p>
+            <form action="${pageContext.request.contextPath}/profile" method="POST">
+                <input type="hidden" name="csrfToken" value="${csrfToken}">
+                <input type="hidden" name="action" value="changePassword">
+                <div class="field">
+                    <label>Current Password</label>
+                    <input type="password" name="currentPassword" required autocomplete="current-password">
+                </div>
+                <div class="field">
+                    <label>New Password</label>
+                    <input type="password" name="newPassword" required minlength="8" autocomplete="new-password">
+                </div>
+                <div class="field">
+                    <label>Confirm New Password</label>
+                    <input type="password" name="confirmPassword" required minlength="8" autocomplete="new-password">
+                </div>
+                <button type="submit" class="btn">Change Password</button>
             </form>
         </div>
 

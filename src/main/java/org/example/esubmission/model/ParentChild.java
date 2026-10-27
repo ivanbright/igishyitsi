@@ -13,12 +13,19 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "parent_children",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"parent_id", "student_id"}))
+        uniqueConstraints = @UniqueConstraint(name = "uk_parent_children_school_parent_student",
+                columnNames = {"school_id", "parent_id", "student_id"}))
 public class ParentChild {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /**
+     * The school (tenant) this parent-child link belongs to.
+     */
+    @Column(name = "school_id", nullable = false)
+    private Long schoolId;
 
     @ManyToOne
     @JoinColumn(name = "parent_id", nullable = false)
@@ -33,6 +40,9 @@ public class ParentChild {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public Long getSchoolId() { return schoolId; }
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
 
     public User getParent() { return parent; }
     public void setParent(User parent) { this.parent = parent; }

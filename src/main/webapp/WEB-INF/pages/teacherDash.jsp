@@ -18,12 +18,16 @@
 
         let serverData = {};
         try {
-            serverData = JSON.parse(document.getElementById('server-data').textContent);
+            const el = document.getElementById('server-data');
+            serverData = el ? JSON.parse(el.textContent) : (window.serverData || {});
         } catch (e) {
             serverData = window.serverData || {};
             console.error('Failed to parse serverData', e);
         }
+        const metaCsrf = document.querySelector('meta[name="csrf-token"]');
+        window.__csrf = (metaCsrf && metaCsrf.content) || serverData.csrfToken || '';
 
+        const csrfToken = window.__csrf || '';
         const user = serverData.currentUser || {};
         const assignments = serverData.assignments || [];
         const classes = serverData.classes || [];
@@ -272,7 +276,7 @@
 
                 fetch(contextPath + '/teacher/grade', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken },
                     body: formData
                 })
                 .then(response => {
@@ -538,6 +542,7 @@
                 </button>
             </div>
             <form id="createAssignmentForm" action="${pageContext.request.contextPath}/teacher/dashboard" method="POST">
+                <input type="hidden" name="csrfToken" value="${csrfToken}">
                 <input type="hidden" name="action" value="createAssignment">
                 <div class="form-group">
                     <label>Title</label>

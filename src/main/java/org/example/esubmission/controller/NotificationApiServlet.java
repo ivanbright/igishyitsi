@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.example.esubmission.model.Notification;
 import org.example.esubmission.model.User;
 import org.example.esubmission.service.NotificationService;
+import org.example.esubmission.util.SecurityUtil;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -87,9 +88,17 @@ public class NotificationApiServlet extends HttpServlet {
         }
 
         String pathInfo = request.getPathInfo();
-        
+        if (pathInfo == null || !pathInfo.equals("/read") && !pathInfo.startsWith("/read/")) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
+        if (!SecurityUtil.csrfValid(request)) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid CSRF token");
+            return;
+        }
+
         try {
-            if (pathInfo != null && pathInfo.startsWith("/read")) {
+            if (pathInfo.startsWith("/read")) {
                 String idPart = pathInfo.substring("/read".length());
                 if (idPart.isEmpty() || idPart.equals("/")) {
                     // Mark all read

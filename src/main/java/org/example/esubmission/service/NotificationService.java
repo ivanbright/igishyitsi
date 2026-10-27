@@ -2,7 +2,9 @@ package org.example.esubmission.service;
 
 import org.example.esubmission.dao.NotificationDAO;
 import org.example.esubmission.model.Notification;
+import org.example.esubmission.model.School;
 import org.example.esubmission.model.User;
+import org.example.esubmission.util.TenantContext;
 
 import java.util.List;
 
@@ -22,11 +24,27 @@ public class NotificationService {
     }
 
     /**
-     * Creates a notification for a user.
+     * Creates a notification for a user, scoped to the active school.
      */
     public Notification notify(User user, String title, String message, String type, String link) {
         Notification n = new Notification(user, title, message, type, link);
         return notificationDAO.save(n);
+    }
+
+    /**
+     * Creates a notification for a user in an explicitly named school, for
+     * platform-level work performed outside any tenant context.
+     * <p>
+     * Provisioning a school and managing its accounts happens while the platform
+     * administrator has no tenant, so those notifications cannot use the
+     * tenant-scoped write. Callers must already hold platform-administrator
+     * access.
+     * </p>
+     */
+    public Notification notifyForSchool(School school, User user, String title, String message, String type, String link) {
+        Notification n = new Notification(user, title, message, type, link);
+        n.setSchoolId(school.getId());
+        return notificationDAO.saveForPlatform(n);
     }
 
     /**
@@ -74,24 +92,43 @@ public class NotificationService {
     }
 
     /**
-     * Retrieves all notifications for a user.
+     * Retrieves all notifications for a user within the active school.
+     * <p>
+     * A user with no active school, such as a platform administrator, has no
+     * notifications to show rather than an error, so this returns an empty list
+     * instead of failing the whole request.
+     * </p>
      */
     public List<Notification> getNotifications(Long userId) {
-        return notificationDAO.findByUserId(userId);
+        Long schoolId = TenantContext.getSchoolId();
+        if (schoolId == null) {
+            return List.of();
+        }
+        return notificationDAO.findByUserId(userId, schoolId);
     }
 
     /**
-     * Retrieves unread notification count for a user.
+     * Retrieves unread notification count for a user within the active school,
+     * or zero when the user has no active school.
      */
     public Long getUnreadCount(Long userId) {
-        return notificationDAO.countUnreadByUserId(userId);
+        Long schoolId = TenantContext.getSchoolId();
+        if (schoolId == null) {
+            return 0L;
+        }
+        return notificationDAO.countUnreadByUserId(userId, schoolId);
     }
 
     /**
-     * Marks all notifications as read for a user.
+     * Marks all notifications as read for a user within the active school.
+     * No-op when the user has no active school.
      */
     public void markAllRead(Long userId) {
-        notificationDAO.markAllReadByUserId(userId);
+        Long schoolId = TenantContext.getSchoolId();
+        if (schoolId == null) {
+            return;
+        }
+        notificationDAO.markAllReadByUserId(userId, schoolId);
     }
 
     /**

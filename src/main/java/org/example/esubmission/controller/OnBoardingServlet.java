@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.example.esubmission.dao.UserDAO;
 import org.example.esubmission.model.User;
+import org.example.esubmission.util.SecurityUtil;
 
 import java.io.IOException;
 
@@ -28,16 +29,24 @@ public class OnBoardingServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-        String action = request.getParameter("action");
-        if (!"updateProfile".equals(action)) {
-            response.sendRedirect(request.getContextPath() + "/onboarding");
+        HttpSession session = request.getSession(false);
+        Object userAttribute = session == null ? null : session.getAttribute("user");
+        if (!(userAttribute instanceof User)) {
+            response.sendRedirect(request.getContextPath() + "/login");
+            return;
+        }
+        User user = (User) userAttribute;
+        if (!SecurityUtil.csrfValid(request)) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid CSRF token");
             return;
         }
 
-        HttpSession session = request.getSession();
-        User user = (User) session.getAttribute("user");
-        if (user == null) {
-            response.sendRedirect(request.getContextPath() + "/login");
+        request.setAttribute("user", user);
+        request.setAttribute("csrfToken", SecurityUtil.getCsrfToken(request));
+
+        String action = request.getParameter("action");
+        if (!"updateProfile".equals(action)) {
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Unsupported onboarding action");
             return;
         }
 
@@ -55,11 +64,17 @@ public class OnBoardingServlet extends HttpServlet {
         session.setAttribute("user", user);
 
         switch (user.getRole()) {
+            case SUPER_ADMIN:
+                response.sendRedirect(request.getContextPath() + "/super/dashboard");
+                break;
             case ADMIN:
                 response.sendRedirect(request.getContextPath() + "/admin/dashboard");
                 break;
             case TEACHER:
                 response.sendRedirect(request.getContextPath() + "/teacher/dashboard");
+                break;
+            case PARENT:
+                response.sendRedirect(request.getContextPath() + "/profile");
                 break;
             default:
                 response.sendRedirect(request.getContextPath() + "/student/dashboard");
@@ -67,7 +82,15 @@ public class OnBoardingServlet extends HttpServlet {
     }
 
     @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        req.getRequestDispatcher("/WEB-INF/pages/onboarding.jsp").forward(req, resp);
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        HttpSession session = request.getSession(false);
+        Object userAttribute = session == null ? null : session.getAttribute("user");
+        if (!(userAttribute instanceof User)) {
+            response.sendRedirect(request.getContextPath() + "/login");
+            return;
+        }
+        request.setAttribute("user", (User) userAttribute);
+        request.setAttribute("csrfToken", SecurityUtil.getCsrfToken(request));
+        request.getRequestDispatcher("/WEB-INF/pages/onboarding.jsp").forward(request, response);
     }
 }

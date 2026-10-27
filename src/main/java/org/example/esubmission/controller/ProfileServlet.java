@@ -9,6 +9,10 @@ import org.example.esubmission.dao.SubmissionDAO;
 import org.example.esubmission.dao.UserDAO;
 import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
+import org.example.esubmission.util.PasswordUtils;
+import org.example.esubmission.util.SecurityUtil;
+import org.example.esubmission.util.TenantContext;
+import org.example.esubmission.util.TenantView;
 
 import java.io.IOException;
 import java.util.List;
@@ -24,7 +28,10 @@ import java.util.List;
  * @author Mugisha Ivan Bright
  */
 public class ProfileServlet extends HttpServlet {
-    
+
+    private static final java.util.logging.Logger LOGGER =
+            java.util.logging.Logger.getLogger(ProfileServlet.class.getName());
+
     private SubmissionDAO submissionDAO;
     private UserDAO userDAO;
 
@@ -54,17 +61,20 @@ public class ProfileServlet extends HttpServlet {
     protected void doGet(HttpServletRequest request, HttpServletResponse response) 
             throws ServletException, IOException {
         
-        HttpSession session = request.getSession();
-        User student = (User) session.getAttribute("user");
-
-        if (student == null) {
+        HttpSession session = request.getSession(false);
+        Object userAttribute = session == null ? null : session.getAttribute("user");
+        if (!(userAttribute instanceof User)) {
             response.sendRedirect(request.getContextPath() + "/login");
             return;
         }
+        User student = (User) userAttribute;
 
         try {
-            List<Submission> submissions = submissionDAO.findByStudentId(student.getId());
-            
+            List<Submission> submissions = List.of();
+            if (TenantContext.getSchoolId() != null) {
+                submissions = submissionDAO.findByStudentId(student.getId());
+            }
+
             // Calculate profile statistics
             int totalSubmissions = submissions.size();
             int gradedSubmissions = (int) submissions.stream()
@@ -78,15 +88,17 @@ public class ProfileServlet extends HttpServlet {
                 .orElse(0.0);
             
             request.setAttribute("user", student);
+            request.setAttribute("csrfToken", SecurityUtil.getCsrfToken(request));
             request.setAttribute("submissions", submissions);
             request.setAttribute("totalSubmissions", totalSubmissions);
             request.setAttribute("gradedSubmissions", gradedSubmissions);
             request.setAttribute("averageGrade", averageGrade);
+            TenantView.apply(request);
             
             request.getRequestDispatcher("/WEB-INF/pages/profile.jsp").forward(request, response);
             
         } catch (Exception e) {
-            e.printStackTrace();
+            LOGGER.log(java.util.logging.Level.SEVERE, "Error loading profile", e);
             response.sendError(500, "Error loading profile");
         }
     }
@@ -107,11 +119,15 @@ public class ProfileServlet extends HttpServlet {
     protected void doPost(HttpServletRequest request, HttpServletResponse response) 
             throws ServletException, IOException {
         
-        HttpSession session = request.getSession();
-        User student = (User) session.getAttribute("user");
-
-        if (student == null) {
+        HttpSession session = request.getSession(false);
+        Object userAttribute = session == null ? null : session.getAttribute("user");
+        if (!(userAttribute instanceof User)) {
             response.sendRedirect(request.getContextPath() + "/login");
+            return;
+        }
+        User student = (User) userAttribute;
+        if (!SecurityUtil.csrfValid(request)) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid CSRF token");
             return;
         }
 
@@ -131,13 +147,48 @@ public class ProfileServlet extends HttpServlet {
                 session.setAttribute("user", student);
                 
                 session.setAttribute("message", "Profile updated successfully!");
+            } else if ("changePassword".equals(action)) {
+                String currentPassword = request.getParameter("currentPassword");
+                String newPassword = request.getParameter("newPassword");
+                String confirmPassword = request.getParameter("confirmPassword");
+
+                String error = validatePasswordChange(currentPassword, newPassword, confirmPassword, student);
+                if (error != null) {
+                    session.setAttribute("error", error);
+                } else {
+                    student.setPassword(PasswordUtils.hashPassword(newPassword));
+                    userDAO.save(student);
+                    session.setAttribute("user", student);
+                    session.setAttribute("message", "Password changed successfully!");
+                }
             }
             
             response.sendRedirect(request.getContextPath() + "/profile");
             
         } catch (Exception e) {
-            e.printStackTrace();
+            LOGGER.log(java.util.logging.Level.SEVERE, "Error updating profile", e);
             response.sendError(500, "Error updating profile");
         }
+    }
+
+    /**
+     * Validates a password change request, returning an error message or
+     * {@code null} when the change may proceed.
+     */
+    private String validatePasswordChange(String currentPassword, String newPassword, String confirmPassword,
+                                          User user) {
+        if (currentPassword == null || !PasswordUtils.checkPassword(currentPassword, user.getPassword())) {
+            return "Current password is incorrect";
+        }
+        if (newPassword == null || newPassword.length() < 8) {
+            return "New password must be at least 8 characters";
+        }
+        if (!newPassword.equals(confirmPassword)) {
+            return "New passwords do not match";
+        }
+        if (newPassword.equals(currentPassword)) {
+            return "New password must be different from the current password";
+        }
+        return null;
     }
 }

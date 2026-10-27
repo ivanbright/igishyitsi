@@ -26,12 +26,15 @@
 
         let serverData = {};
         try {
-            serverData = JSON.parse(document.getElementById('server-data').textContent);
+            const el = document.getElementById('server-data');
+            serverData = el ? JSON.parse(el.textContent) : (window.serverData || {});
         } catch (e) {
             serverData = window.serverData || {};
             console.error('Failed to parse serverData', e);
         }
 
+        const metaCsrf = document.querySelector('meta[name="csrf-token"]');
+        const csrfToken = (metaCsrf && metaCsrf.content) || serverData.csrfToken || (window.__csrf || '');
         const stats = serverData.stats || {};
         const users = serverData.users || [];
         const students = serverData.students || [];
@@ -354,6 +357,59 @@ window.openUserDetails = function(userId) {
 
         // ===== Navigation =====
         window.previousSection = 'overview';
+        window.loadSchoolProfile = async function() {
+            try {
+                const res = await fetch(contextPath + '/admin/api/school');
+                const json = await res.json();
+                if (!json.success) return;
+                document.getElementById('schoolNameInput').value = json.name || '';
+                document.getElementById('schoolEmailInput').value = json.email || '';
+                document.getElementById('schoolPhoneInput').value = json.phone || '';
+                document.getElementById('schoolDomainInput').value = json.domain || '';
+                document.getElementById('schoolLogoInput').value = json.logoUrl || '';
+                document.getElementById('schoolAddressInput').value = json.address || '';
+                document.getElementById('schoolDescriptionInput').value = json.description || '';
+                document.getElementById('schoolPlanLabel').textContent = json.plan || '—';
+            } catch (err) {
+                showToast('Could not load the school profile', 'error');
+            }
+        };
+
+        window.saveSchoolProfile = async function(event) {
+            event.preventDefault();
+            const btn = document.getElementById('schoolProfileSaveBtn');
+            btn.disabled = true;
+            const formData = new URLSearchParams();
+            formData.set('action', 'update');
+            formData.set('name', document.getElementById('schoolNameInput').value);
+            formData.set('email', document.getElementById('schoolEmailInput').value);
+            formData.set('phone', document.getElementById('schoolPhoneInput').value);
+            formData.set('domain', document.getElementById('schoolDomainInput').value);
+            formData.set('logoUrl', document.getElementById('schoolLogoInput').value);
+            formData.set('address', document.getElementById('schoolAddressInput').value);
+            formData.set('description', document.getElementById('schoolDescriptionInput').value);
+            try {
+                const res = await fetch(contextPath + '/admin/api/school', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken },
+                    body: formData.toString()
+                });
+                const json = await res.json();
+                if (json.success) {
+                    showToast(json.message || 'School profile updated', 'success');
+                    if (json.name) {
+                        document.querySelectorAll('.current-school-name, .logo-text').forEach(el => { el.textContent = json.name; });
+                    }
+                } else {
+                    showToast(json.message || 'Could not save the school profile', 'error');
+                }
+            } catch (err) {
+                showToast('Network error', 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        };
+
         window.switchSection = function(sectionId) {
             if (sectionId !== 'user-details') {
                 window.previousSection = sectionId;
@@ -390,6 +446,7 @@ window.openUserDetails = function(userId) {
         function setupNavigation() {
             const urlParams = new URLSearchParams(window.location.search);
             window.switchSection(urlParams.get('section') || 'overview');
+            window.loadSchoolProfile();
         }
 
         function checkQueryMessages() {
@@ -448,14 +505,66 @@ window.openUserDetails = function(userId) {
         window.openAnnouncementModal = function() { openModal('announcementModal'); };
         window.closeAnnouncementModal = function() { closeModal('announcementModal'); };
 
+        window.openAddSubjectModal = function() { openModal('addSubjectModal'); };
+        window.closeAddSubjectModal = function() { closeModal('addSubjectModal'); };
+
+        window.openAddClassModal = function() { openModal('addClassModal'); };
+        window.closeAddClassModal = function() { closeModal('addClassModal'); };
+
         // ===== API Actions =====
+        window.submitAddSubject = async function(e) {
+            e.preventDefault();
+            const formData = new URLSearchParams(new FormData(e.target));
+            formData.set('action', 'create');
+            try {
+                const res = await fetch(contextPath + '/api/admin/subjects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken },
+                    body: formData.toString()
+                });
+                const json = await res.json();
+                if (json.success) {
+                    showToast(json.message, 'success');
+                    closeAddSubjectModal();
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    showToast(json.message || 'Failed to create subject', 'error');
+                }
+            } catch (err) {
+                showToast('Network error', 'error');
+            }
+        };
+
+        window.submitAddClass = async function(e) {
+            e.preventDefault();
+            const formData = new URLSearchParams(new FormData(e.target));
+            formData.set('action', 'create');
+            try {
+                const res = await fetch(contextPath + '/api/admin/classes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken },
+                    body: formData.toString()
+                });
+                const json = await res.json();
+                if (json.success) {
+                    showToast(json.message, 'success');
+                    closeAddClassModal();
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    showToast(json.message || 'Failed to create class', 'error');
+                }
+            } catch (err) {
+                showToast('Network error', 'error');
+            }
+        };
+
         window.submitAddUser = async function(e) {
             e.preventDefault();
             const formData = new URLSearchParams(new FormData(e.target));
             try {
                 const res = await fetch(contextPath + '/api/admin/addUser', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken },
                     body: formData.toString()
                 });
                 const json = await res.json();
@@ -477,7 +586,7 @@ window.openUserDetails = function(userId) {
             try {
                 const res = await fetch(contextPath + '/api/admin/editUser', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken },
                     body: formData.toString()
                 });
                 const json = await res.json();
@@ -499,7 +608,7 @@ window.openUserDetails = function(userId) {
             try {
                 const res = await fetch(contextPath + '/api/admin/createAnnouncement', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken },
                     body: formData.toString()
                 });
                 const json = await res.json();
@@ -671,7 +780,10 @@ window.openUserDetails = function(userId) {
     <section class="content-section" id="section-classes">
         <div class="section-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
             <h2 class="section-title" style="font-size:1.5rem;margin:0;">Classes &amp; Subjects</h2>
-            <button class="btn btn-primary" onclick="openAllocateStudentModal()">🎓 Allocate Student</button>
+            <div style="display:flex;gap:0.75rem;">
+                <button class="btn btn-outline" onclick="openAddClassModal()">Add Class</button>
+                <button class="btn btn-primary" onclick="openAllocateStudentModal()">🎓 Allocate Student</button>
+            </div>
         </div>
         <div class="section-block" style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;overflow:hidden;">
             <div style="padding:1rem 1.5rem;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;background:var(--bg-hover);">
@@ -698,8 +810,9 @@ window.openUserDetails = function(userId) {
                 <h2>Allocate Student to Class</h2>
                 <button type="button" class="modal-close" onclick="closeAllocateStudentModal()">&times;</button>
             </div>
-            <form action="${pageContext.request.contextPath}/admin/allocate" method="POST">
-                <input type="hidden" name="action" value="allocate">
+              <form action="${pageContext.request.contextPath}/admin/allocate" method="POST">
+                  <input type="hidden" name="csrfToken" value="${csrfToken}">
+                  <input type="hidden" name="action" value="allocate">
                 <div class="form-group" style="margin-bottom:1rem;">
                     <label class="form-label">Student</label>
                     <select name="studentId" id="allocateStudentId" class="form-control" required></select>
@@ -809,6 +922,56 @@ window.openUserDetails = function(userId) {
                 </thead>
                 <tbody id="subjectsTableBody"></tbody>
             </table>
+        </div>
+    </section>
+
+    <!-- School Profile Section -->
+    <section class="content-section" id="section-school">
+        <div class="section-header" style="margin-bottom:1.5rem;">
+            <h2 class="section-title" style="font-size:1.5rem;margin:0;">School Profile</h2>
+            <p style="font-size:0.875rem;color:var(--text-muted);margin:0.25rem 0 0;">This is how your school appears to everyone signed in to it.</p>
+        </div>
+        <div class="section-block" style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:2rem;max-width:760px;">
+            <form id="schoolProfileForm" onsubmit="saveSchoolProfile(event); return false;">
+                <div style="display:flex;flex-direction:column;gap:1.25rem;">
+                    <div>
+                        <label class="form-label" for="schoolNameInput">School Name</label>
+                        <input type="text" id="schoolNameInput" class="form-control" required maxlength="150">
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+                        <div>
+                            <label class="form-label" for="schoolEmailInput">Contact Email</label>
+                            <input type="email" id="schoolEmailInput" class="form-control" placeholder="office@school.rw">
+                        </div>
+                        <div>
+                            <label class="form-label" for="schoolPhoneInput">Contact Phone</label>
+                            <input type="text" id="schoolPhoneInput" class="form-control" placeholder="+250 ...">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="form-label" for="schoolDomainInput">Domain</label>
+                        <input type="text" id="schoolDomainInput" class="form-control" placeholder="school.rw">
+                    </div>
+                    <div>
+                        <label class="form-label" for="schoolLogoInput">Logo URL</label>
+                        <input type="url" id="schoolLogoInput" class="form-control" placeholder="https://...">
+                    </div>
+                    <div>
+                        <label class="form-label" for="schoolAddressInput">Address</label>
+                        <textarea id="schoolAddressInput" class="form-control" rows="2"></textarea>
+                    </div>
+                    <div>
+                        <label class="form-label" for="schoolDescriptionInput">Description</label>
+                        <textarea id="schoolDescriptionInput" class="form-control" rows="3" placeholder="A short description of the school"></textarea>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;padding-top:0.5rem;border-top:1px solid var(--border-color);">
+                        <div style="font-size:0.8rem;color:var(--text-muted);">
+                            Plan <strong id="schoolPlanLabel">—</strong> and school URL are managed by the platform administrator.
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="schoolProfileSaveBtn">Save Profile</button>
+                    </div>
+                </div>
+            </form>
         </div>
     </section>
 
@@ -934,6 +1097,60 @@ window.openUserDetails = function(userId) {
                 <div style="display:flex;justify-content:flex-end;gap:1rem;">
                     <button type="button" class="btn btn-outline" onclick="closeAnnouncementModal()">Cancel</button>
                     <button type="submit" class="btn btn-primary">Broadcast</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="addSubjectModal" class="modal-overlay" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Add Subject</h2>
+                <button type="button" class="modal-close" onclick="closeAddSubjectModal()">&times;</button>
+            </div>
+            <form onsubmit="submitAddSubject(event)">
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label class="form-label">Subject Code</label>
+                    <input type="text" name="code" class="form-control" required maxlength="20" placeholder="e.g. MATH101">
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label class="form-label">Subject Name</label>
+                    <input type="text" name="name" class="form-control" required placeholder="e.g. Mathematics">
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label class="form-label">Department</label>
+                    <input type="text" name="department" class="form-control" placeholder="e.g. Science">
+                </div>
+                <div class="form-group" style="margin-bottom:1.5rem;">
+                    <label class="form-label">Credits</label>
+                    <input type="number" name="credits" class="form-control" min="0" max="60" step="1" placeholder="e.g. 3">
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:1rem;">
+                    <button type="button" class="btn btn-outline" onclick="closeAddSubjectModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Subject</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="addClassModal" class="modal-overlay" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Add Class</h2>
+                <button type="button" class="modal-close" onclick="closeAddClassModal()">&times;</button>
+            </div>
+            <form onsubmit="submitAddClass(event)">
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label class="form-label">Class Name</label>
+                    <input type="text" name="name" class="form-control" required maxlength="100" placeholder="e.g. Senior 1A">
+                </div>
+                <div class="form-group" style="margin-bottom:1.5rem;">
+                    <label class="form-label">Description</label>
+                    <textarea name="description" class="form-control" rows="3" placeholder="Optional"></textarea>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:1rem;">
+                    <button type="button" class="btn btn-outline" onclick="closeAddClassModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Class</button>
                 </div>
             </form>
         </div>

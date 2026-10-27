@@ -14,6 +14,7 @@ import org.example.esubmission.model.StudentClass;
 import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
 import org.example.esubmission.service.AssignmentService;
+import org.example.esubmission.util.SecurityUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
@@ -85,9 +86,11 @@ public class TeachersDash extends HttpServlet {
         System.out.println("Teacher: " + teacher.getName());
 
         try {
+            String csrfToken = SecurityUtil.getCsrfToken(req);
             // Get teacher's assignments
             List<Assignment> assignments = assignmentService.getTeacherAssignments(teacher.getId());
             req.setAttribute("assignments", assignments);
+            req.setAttribute("csrfToken", csrfToken);
 
             // Get teacher's classes (union of enrollment-derived and explicit assignments)
             Set<String> classNames = new LinkedHashSet<>();
@@ -115,12 +118,15 @@ public class TeachersDash extends HttpServlet {
             List<Submission> recentSubmissions = new SubmissionDAO().findByTeacherId(teacher.getId());
             req.setAttribute("recentSubmissions", recentSubmissions);
 
+            org.example.esubmission.util.TenantView.apply(req);
+
             // Serialize all data to JSON for frontend
             ObjectMapper mapper = new ObjectMapper();
             mapper.registerModule(new JavaTimeModule());
             
             Map<String, Object> realData = new HashMap<>();
             realData.put("currentUser", teacher);
+            realData.put("csrfToken", csrfToken);
             realData.put("assignments", assignments);
             realData.put("classes", classes);
             realData.put("enrollments", enrollments);
@@ -132,7 +138,7 @@ public class TeachersDash extends HttpServlet {
             ));
             
             String realDataJson = mapper.writeValueAsString(realData);
-            req.setAttribute("realData", realDataJson);
+            req.setAttribute("realData", org.example.esubmission.util.JsonUtil.forScriptEmbedding(realDataJson));
 
             req.getRequestDispatcher("/WEB-INF/pages/teacherDash.jsp").forward(req, resp);
         } catch (Exception e) {
@@ -151,8 +157,16 @@ public class TeachersDash extends HttpServlet {
      */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        HttpSession session = req.getSession();
-        User teacher = (User) session.getAttribute("user");
+        HttpSession session = req.getSession(false);
+        User teacher = SecurityUtil.requireTeacher(req);
+        if (teacher == null) {
+            resp.sendError(HttpServletResponse.SC_FORBIDDEN, "Only teachers can create assignments.");
+            return;
+        }
+        if (!SecurityUtil.csrfValid(req)) {
+            resp.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid CSRF token");
+            return;
+        }
 
         String action = req.getParameter("action");
 

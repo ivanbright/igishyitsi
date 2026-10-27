@@ -15,6 +15,7 @@ import org.example.esubmission.model.Submission;
 import org.example.esubmission.model.User;
 import org.example.esubmission.dao.StudentClassDAO;
 import org.example.esubmission.model.StudentClass;
+import org.example.esubmission.util.SecurityUtil;
 import java.util.List;
 
 import java.io.File;
@@ -146,11 +147,14 @@ public class SubmitAssignmentServlet extends HttpServlet {
     protected void doPost(HttpServletRequest request, HttpServletResponse response) 
             throws ServletException, IOException {
         
-        HttpSession session = request.getSession();
-        User student = (User) session.getAttribute("user");
-
+        HttpSession session = request.getSession(false);
+        User student = SecurityUtil.requireStudent(request);
         if (student == null) {
-            response.sendRedirect(request.getContextPath() + "/login");
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, "Only students can submit assignments.");
+            return;
+        }
+        if (!SecurityUtil.csrfValid(request)) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid CSRF token");
             return;
         }
 
